@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": ".vite/build",
+    "baseUrl": ".",
+    "paths": {}
+  },
+  "include": ["src/**/*", "*.ts"]
+}

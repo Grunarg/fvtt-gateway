@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FoundryVTT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <script crossorigin src="https://kit.fontawesome.com/d9351ab632.js"></script>
+</head>
+<body>
+  <!-- Update-Banner (Issue #14) -->
+  <div id="update-banner" class="hidden">
+    <i class="fas fa-scroll"></i>
+    Eine neue Version ist verfügbar: <strong class="latest-version"></strong>
+    <a href="https://github.com/OmegaRogue/fvtt-player-client/releases/latest" target="_blank">
+      Herunterladen
+    </a>
+  </div>
+
+  <div class="layout">
+    <!-- Linke Spalte: Spielliste -->
+    <main class="main-panel">
+      <header class="app-header">
+        <h1 class="logo">
+          <span class="logo-icon">⚔</span>
+          <span class="logo-text">FoundryVTT</span>
+        </h1>
+        <div class="header-actions">
+          <span id="app-version" class="version-badge">v2.0.0</span>
+          <button id="open-settings" class="icon-btn" title="Einstellungen">
+            <i class="fas fa-cog"></i>
+          </button>
+        </div>
+      </header>
+
+      <section class="server-list-section">
+        <h2 class="section-title">Server</h2>
+        <ul id="game-list"></ul>
+
+        <div class="add-game-form">
+          <input id="new-game-name" type="text"  placeholder="Name" autocomplete="off">
+          <input id="new-game-url"  type="url"   placeholder="https://…" autocomplete="off">
+          <button id="add-game" class="btn-primary">
+            <i class="fas fa-plus"></i> Hinzufügen
+          </button>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <span id="system-info" class="system-info"></span>
+      </footer>
+    </main>
+
+    <!-- Rechte Spalte: Einstellungen -->
+    <aside id="settings-panel" class="settings-panel">
+      <div class="settings-header">
+        <h2>Einstellungen</h2>
+        <button id="close-settings" class="icon-btn" onclick="document.getElementById('settings-panel').classList.remove('open')">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <div class="settings-scroll">
+        <!-- Darstellung -->
+        <fieldset class="settings-group">
+          <legend>Darstellung</legend>
+          <label>Hintergrundfarbe
+            <input id="cfg-bg-color" type="color">
+          </label>
+          <label>Textfarbe
+            <input id="cfg-text-color" type="color">
+          </label>
+          <label>Akzentfarbe
+            <input id="cfg-accent-color" type="color">
+          </label>
+          <label>Hintergrundbild-URL
+            <input id="cfg-background" type="url" placeholder="https://…">
+          </label>
+          <label>Custom CSS
+            <textarea id="cfg-custom-css" rows="4" placeholder="body { … }"></textarea>
+          </label>
+        </fieldset>
+
+        <!-- Issue #7: Tastaturlayout -->
+        <fieldset class="settings-group">
+          <legend>Tastatur</legend>
+          <label>Layout
+            <select id="cfg-keyboard-layout">
+              <option value="qwertz">QWERTZ (Deutsch)</option>
+              <option value="qwerty">QWERTY (Englisch)</option>
+              <option value="azerty">AZERTY (Französisch)</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <!-- Issue #4: Lobby-Musik -->
+        <fieldset class="settings-group">
+          <legend>Lobby-Musik</legend>
+          <label>Tracks (eine URL pro Zeile)
+            <textarea id="cfg-lobby-music" rows="4" placeholder="https://…/musik.mp3"></textarea>
+          </label>
+          <label>Lautstärke (0–1)
+            <input id="cfg-music-volume" type="number" min="0" max="1" step="0.05" value="0.4">
+          </label>
+          <div class="pipewire-controls">
+            <span class="settings-label">PipeWire Quantum</span>
+            <div class="btn-group">
+              <button data-quantum="64"   class="btn-small" title="~1.3ms – PTT">64</button>
+              <button data-quantum="256"  class="btn-small active" title="~5.3ms – Standard">256</button>
+              <button data-quantum="1024" class="btn-small" title="~21ms – Musik">1024</button>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Cache & Sicherheit -->
+        <fieldset class="settings-group">
+          <legend>System</legend>
+          <label>Cache-Pfad
+            <input id="cfg-cache-path" type="text" placeholder="/pfad/zum/cache">
+          </label>
+          <label class="checkbox-label">
+            <input id="cfg-auto-cache" type="checkbox">
+            Cache beim Schließen leeren
+          </label>
+          <label class="checkbox-label">
+            <input id="cfg-ignore-cert" type="checkbox">
+            Zertifikatsfehler ignorieren (self-signed)
+          </label>
+          <button id="clear-cache" class="btn-secondary">
+            <i class="fas fa-trash"></i> Cache jetzt leeren
+          </button>
+        </fieldset>
+      </div>
+
+      <div class="settings-footer">
+        <button id="save-settings" class="btn-primary">
+          <i class="fas fa-save"></i> Speichern
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Template für einen Spieleintrag -->
+  <template id="game-item-template">
+    <li class="game-item">
+      <div class="game-row">
+        <button class="game-launch">
+          <i class="fas fa-dungeon"></i>
+          <a class="game-name">Server</a>
+        </button>
+        <button class="game-settings-toggle icon-btn" title="Konfigurieren">
+          <i class="fas fa-sliders-h"></i>
+        </button>
+      </div>
+      <div class="game-config">
+        <label>Benutzer
+          <input class="user-name"      type="text"     placeholder="Spielername"      autocomplete="off">
+        </label>
+        <label>Passwort
+          <input class="user-password"  type="password" placeholder="Passwort"         autocomplete="off">
+        </label>
+        <label>Admin-Passwort
+          <input class="admin-password" type="password" placeholder="Admin-Passwort"   autocomplete="off">
+        </label>
+        <label class="checkbox-label">
+          <input class="auto-login" type="checkbox" checked>
+          Automatisch einloggen
+        </label>
+        <div class="btn-group">
+      <div class="btn-group">
+          <button class="save-creds btn-primary btn-small">
+            <i class="fas fa-save"></i> Speichern
+          </button>
+          <button class="delete-game btn-danger btn-small">
+            <i class="fas fa-trash"></i> Entfernen
+          </button>
+        </div>
+      </div>
+    </li>
+  </template>
+
+  <script type="module" src="/src/renderer.ts"></script>
+</body>
+</html>
