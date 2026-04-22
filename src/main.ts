@@ -39,7 +39,7 @@ app.commandLine.appendSwitch('enable-zero-copy');
 // disable-gpu-sandbox + in-process-gpu: Zuverlässige WebGL-Init auf Wayland/Ozone
 // Ohne diese Flags meldet Foundry "hardware acceleration disabled"
 app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('in-process-gpu');
+//app.commandLine.appendSwitch('in-process-gpu');
 
 // Hohe Performance GPU bevorzugen (AMD Dedicated statt iGPU)
 app.commandLine.appendSwitch('force_high_performance_gpu');
