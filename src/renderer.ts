@@ -243,6 +243,9 @@ document.querySelectorAll('[data-quantum]').forEach(btn => {
   btn.addEventListener('click', () => {
     const frames = parseInt((btn as HTMLElement).dataset.quantum ?? '256');
     window.api.setPipewireQuantum(frames);
+    // active-Klasse umschalten
+    document.querySelectorAll('[data-quantum]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
     showToast(`PipeWire: ${frames} Frames`);
   });
 });

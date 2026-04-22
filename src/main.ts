@@ -366,8 +366,7 @@ function injectInGameReturnButton(win: BrowserWindow): void {
 
 function setPipewireQuantum(frames: number): void {
   exec(`pw-metadata -n settings 0 clock.force-quantum ${frames}`, (err) => {
-    if (err) console.error(`[PipeWire] Quantum-Fehler: ${err.message}`);
-    else console.log(`[PipeWire] Quantum: ${frames} Frames`);
+    if (err) console.error(`[PipeWire] Fehler: ${err.message}`);
   });
 }
 
