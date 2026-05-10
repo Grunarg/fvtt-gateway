@@ -10,4 +10,5 @@ linux:
 files:
   - .vite/**/*
   - package.json
+  - config.json
 afterPack: build/afterPack.js

@@ -74,7 +74,12 @@ if (!isSingleInstance) { app.quit(); }
 // ─── Config / UserData ────────────────────────────────────────────────────────
 
 const USER_DATA_FILE = () => path.join(app.getPath('userData'), 'userData.json');
-const APP_CONFIG_FILE = () => path.join(app.getAppPath(), 'config.json');
+const APP_CONFIG_FILE = () => {
+  // Im AppImage: config.json aus userData-Verzeichnis lesen
+  const userDataConfig = path.join(app.getPath('userData'), 'config.json');
+  if (fs.existsSync(userDataConfig)) return userDataConfig;
+  return path.join(app.getAppPath(), 'config.json');
+};
 
 function readUserData(): UserData {
   try {
@@ -435,13 +440,19 @@ function buildMenu(): void {
 // ─── App-Lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // config.json in userData kopieren falls noch nicht vorhanden
+  const srcConfig = path.join(app.getAppPath(), 'config.json');
+  const dstConfig = path.join(app.getPath('userData'), 'config.json');
+  if (!fs.existsSync(dstConfig) && fs.existsSync(srcConfig)) {
+    fs.copyFileSync(srcConfig, dstConfig);
+  }
+
   buildMenu();
   const win = createGameWindow();
   const rp = rendererPath();
-  console.log('[App] Lade:', rp);  // ← neu
   if (rp.startsWith('http')) win.loadURL(rp);
   else win.loadFile(rp);
-});
+});  // ← diese Klammer fehlt bei dir
 
 app.on('second-instance', () => {
   const win = createGameWindow();
