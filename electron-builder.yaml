@@ -1,0 +1,13 @@
+appId: de.fvtt.gateway
+productName: fvtt-gateway
+executableName: fvtt-gateway
+directories:
+  output: out/appimage
+linux:
+  target:
+    - AppImage
+  category: Game
+files:
+  - .vite/**/*
+  - package.json
+afterPack: build/afterPack.js

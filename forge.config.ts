@@ -17,6 +17,7 @@ const config: ForgeConfig = {
     new MakerZIP({}),
     new MakerDeb({ options: { productName: 'FoundryVTT Client', categories: ['Game'] } }),
     new MakerRpm({ options: { productName: 'FoundryVTT Client' } }),
+    { name: 'electron-forge-maker-appimage', platforms: ['linux'] },
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),

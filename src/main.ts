@@ -7,7 +7,17 @@ import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
 
+// Wayland-Umgebungsvariable programmatisch setzen
+process.env['ELECTRON_OZONE_PLATFORM_HINT'] = 'wayland';
+process.env['LIBVA_DRIVER_NAME'] = 'radeonsi';
+
 if (require('electron-squirrel-startup')) app.quit();
+
+// AppImage/Sandbox Fix für Wayland
+if (app.isPackaged) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
 
 // ─── CachyOS / Wayland / AMD / PipeWire ──────────────────────────────────────
 // Alle Switches müssen VOR app.whenReady() gesetzt werden.
@@ -169,31 +179,29 @@ function createGameWindow(): BrowserWindow {
   const localSession = getSession();
 
   const win = new BrowserWindow({
-    show: false,
+    show: true,
     width: 1280,
     height: 800,
     backgroundColor: '#1a1a2e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      webgl: true,
-      session: localSession,
-      backgroundThrottling: false,
+                                nodeIntegration: false,
+                                contextIsolation: true,
+                                webgl: true,
+                                session: localSession,
+                                backgroundThrottling: false,
     },
   });
 
-  // User-Agent: "Electron" entfernen → Foundry akzeptiert den Client als normalen Browser
+  // User-Agent: "Electron" entfernen
   win.webContents.setUserAgent(
     win.webContents.getUserAgent().replace(/\s*Electron\/[\d.]+/, '')
   );
 
-  // Ladefortschritt in der Taskbar
   win.webContents.on('did-start-loading', () => {
     win.setProgressBar(2, { mode: 'indeterminate' });
   });
 
-  // Popouts erlauben (Foundry öffnet Regelreferenzen etc. in neuen Fenstern)
   win.webContents.setWindowOpenHandler(() => ({
     action: 'allow',
     overrideBrowserWindowOptions: { parent: win, autoHideMenuBar: true },
@@ -201,7 +209,6 @@ function createGameWindow(): BrowserWindow {
 
   win.menuBarVisible = false;
 
-  // Tastenkürzel
   win.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'F12') {
       win.webContents.toggleDevTools(); event.preventDefault();
@@ -225,7 +232,12 @@ function createGameWindow(): BrowserWindow {
     win.setTitle(win.webContents.getTitle());
   });
 
-  win.once('ready-to-show', () => { win.maximize(); win.show(); });
+  win.once('ready-to-show', () => {
+    win.maximize();
+    win.show();
+    win.focus();
+    win.moveTop();
+  });
 
   const winId = win.webContents.id;
   windowsData[winId] = { gameId: '', autoLogin: true };
@@ -233,6 +245,7 @@ function createGameWindow(): BrowserWindow {
   win.on('closed', () => {
     delete windowsData[winId];
   });
+
   return win;
 }
 
@@ -425,6 +438,7 @@ app.whenReady().then(() => {
   buildMenu();
   const win = createGameWindow();
   const rp = rendererPath();
+  console.log('[App] Lade:', rp);  // ← neu
   if (rp.startsWith('http')) win.loadURL(rp);
   else win.loadFile(rp);
 });
