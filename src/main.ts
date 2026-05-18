@@ -59,8 +59,8 @@ app.commandLine.appendSwitch('force_high_performance_gpu');
 app.commandLine.appendSwitch('force-fieldtrials',
   'WebRTC-Audio-Red-For-Opus/Enabled/WebRTC-Audio-OpusMinPacketLossRate/Enabled-1/');
 
-// V8 – 4 GB JS-Heap für große Foundry-Welten mit vielen Modulen
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096 --turbofan');
+// V8 – 2 GB Heap, expose-gc für manuelle GC
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048 --turbofan --expose-gc');
 
 // Kein FPS-Drop wenn das Fenster kurz den Fokus verliert (z.B. beim Würfeln)
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -448,6 +448,11 @@ app.whenReady().then(() => {
   }
 
   buildMenu();
+  // Alle 30 Minuten Garbage Collection anstoßen
+  setInterval(() => {
+    if (global.gc) (global.gc as () => void)();
+    session.defaultSession.clearCache();
+  }, 30 * 60 * 1000);
   const win = createGameWindow();
   const rp = rendererPath();
   if (rp.startsWith('http')) win.loadURL(rp);
