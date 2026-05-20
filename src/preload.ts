@@ -14,6 +14,10 @@ const api: ClientApi = {
   saveAppConfig:     (d)      => ipcRenderer.send('save-app-config', d),
   setCachePath:      (p)      => ipcRenderer.send('cache-path', p),
   setPipewireQuantum:(f)      => ipcRenderer.send('set-pipewire-quantum', f),
+  toggleDiscord:     ()       => ipcRenderer.send('toggle-discord'),
+  setDiscordPanel:   (c)      => ipcRenderer.send('set-discord-config', c),
+  getDiscordConfig:  ()       => ipcRenderer.invoke('get-discord-config'),
+  launchGame: (url: string) => ipcRenderer.send('launch-game', url),
 };
 
 contextBridge.exposeInMainWorld('api', api);

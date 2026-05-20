@@ -14,6 +14,13 @@ type GameConfig = {
   autoLogin?: boolean;
 };
 
+type DiscordPanelConfig = {
+  enabled: boolean;
+  position: 'top' | 'bottom' | 'left' | 'right';
+  size: number;
+  url: string;
+};
+
 type AppConfig = {
   games: GameConfig[];
   background?: string;
@@ -25,11 +32,10 @@ type AppConfig = {
   ignoreCertificateErrors?: boolean;
   autoCacheClear?: boolean;
   cachePath?: string;
-  // Issue #7: Tastaturlayout
   keyboardLayout?: 'qwerty' | 'azerty' | 'qwertz';
-  // Musik-Feature (Issue #4)
   lobbyMusic?: string[];
   lobbyMusicVolume?: number;
+  discord?: DiscordPanelConfig;
 };
 
 type UserData = {
@@ -82,6 +88,10 @@ type ClientApi = {
   saveAppConfig:     (d: Partial<AppConfig>) => void;
   setPipewireQuantum:(frames: number) => void;
   getSystemInfo:     () => Promise<SystemInfo>;
+  toggleDiscord:     () => void;
+  setDiscordPanel:   (config: Partial<DiscordPanelConfig>) => void;
+  getDiscordConfig:  () => Promise<DiscordPanelConfig>;
+  launchGame: (url: string) => void;
 };
 
 type SystemInfo = {

@@ -28,6 +28,9 @@
         </h1>
         <div class="header-actions">
           <span id="app-version" class="version-badge">v2.0.0</span>
+          <button id="discord-toggle" class="icon-btn" title="Discord ein/ausblenden">
+            <i class="fab fa-discord"></i>
+          </button>
           <button id="open-settings" class="icon-btn" title="Einstellungen">
             <i class="fas fa-cog"></i>
           </button>
@@ -79,6 +82,25 @@
           </label>
           <label>Custom CSS
             <textarea id="cfg-custom-css" rows="4" placeholder="body { … }"></textarea>
+          </label>
+        </fieldset>
+
+        <!-- Discord Panel -->
+        <fieldset class="settings-group">
+          <legend>Discord Panel</legend>
+          <label>Position
+            <select id="cfg-discord-position">
+              <option value="bottom">Unten</option>
+              <option value="top">Oben</option>
+              <option value="left">Links</option>
+              <option value="right">Rechts</option>
+            </select>
+          </label>
+          <label>Größe (px)
+            <input id="cfg-discord-size" type="number" min="100" max="800" value="280">
+          </label>
+          <label>URL
+            <input id="cfg-discord-url" type="url" value="https://discord.com/app">
           </label>
         </fieldset>
 
@@ -168,7 +190,6 @@
           Automatisch einloggen
         </label>
         <div class="btn-group">
-      <div class="btn-group">
           <button class="save-creds btn-primary btn-small">
             <i class="fas fa-save"></i> Speichern
           </button>

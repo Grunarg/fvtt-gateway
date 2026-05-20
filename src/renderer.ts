@@ -1,7 +1,6 @@
 import './style.css';
 
-// ─── Issue #13 Fix: Korrekte Version im Update-Check (eigenes Repo) ───────────
-const REPO = 'OmegaRogue/fvtt-player-client'; // für Update-Vergleich, kann auf eigenes Repo zeigen
+const REPO = 'OmegaRogue/fvtt-player-client';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -41,7 +40,6 @@ function applyTheme(config: Partial<AppConfig>): void {
   if (config.accentColor)
     root.style.setProperty('--color-accent', config.accentColor);
 
-  // Hintergrundbild
   let bg = config.background ?? '';
   if (config.backgrounds?.length) {
     bg = config.backgrounds[Math.floor(Math.random() * config.backgrounds.length)];
@@ -50,7 +48,6 @@ function applyTheme(config: Partial<AppConfig>): void {
     document.body.style.backgroundImage = `url(${bg})`;
   }
 
-  // Custom CSS
   if (config.customCSS) {
     let el = document.getElementById('custom-css') as HTMLStyleElement | null;
     if (!el) {
@@ -62,17 +59,13 @@ function applyTheme(config: Partial<AppConfig>): void {
   }
 }
 
-// ─── Issue #7: Tastaturlayout ─────────────────────────────────────────────────
-// AZERTY / QWERTZ / QWERTY – Zoom-Shortcuts unterscheiden sich
+// ─── Tastaturlayout ───────────────────────────────────────────────────────────
 
 function applyKeyboardLayout(layout: string): void {
-  // Foundry verwendet standardmäßig QWERTY-Shortcuts.
-  // Für AZERTY: Zahlen auf Shift-Ebene → Foundry-Hotkeys neu belegen
-  // Wir injizieren das in alle aktiven Foundry-Fenster via CSS-Klasse auf body
   document.body.dataset.keyboardLayout = layout;
 }
 
-// ─── Issue #4: Lobby-Musik ─────────────────────────────────────────────────────
+// ─── Lobby-Musik ──────────────────────────────────────────────────────────────
 
 let lobbyAudio: HTMLAudioElement | null = null;
 let lobbyTracks: string[] = [];
@@ -92,7 +85,7 @@ function startLobbyMusic(tracks: string[], volume = 0.4): void {
       lobbyTrackIndex++;
       playNext();
     });
-    lobbyAudio.play().catch(() => {}); // autoplay policy: silent fail
+    lobbyAudio.play().catch(() => {});
   };
   playNext();
 }
@@ -105,10 +98,6 @@ function stopLobbyMusic(): void {
   }
 }
 
-function setMusicVolume(v: number): void {
-  if (lobbyAudio) lobbyAudio.volume = Math.max(0, Math.min(1, v));
-}
-
 // ─── Spieleintrag rendern ─────────────────────────────────────────────────────
 
 const gameList = document.getElementById('game-list') as HTMLUListElement;
@@ -119,29 +108,25 @@ async function renderGameItem(game: GameConfig): Promise<void> {
   const li = document.importNode(gameTemplate, true) as HTMLLIElement;
   li.dataset.gameId = String(game.id);
 
-  // Gespeicherte Credentials laden
   const creds = await window.api.userData(game.id);
 
   (li.querySelector('.game-name') as HTMLAnchorElement).textContent = game.name;
   (li.querySelector('.user-name')     as HTMLInputElement).value = creds.user;
   (li.querySelector('.user-password') as HTMLInputElement).value = creds.password;
   (li.querySelector('.admin-password')as HTMLInputElement).value = creds.adminPassword;
-  (li.querySelector('.auto-login') as HTMLInputElement).checked = game.autoLogin ?? true;
+  (li.querySelector('.auto-login')    as HTMLInputElement).checked = game.autoLogin ?? true;
 
-  // Spiel starten
   li.querySelector('.game-launch')!.addEventListener('click', () => {
     stopLobbyMusic();
     window.api.openGame(game.id);
-    window.location.href = game.url;
+    window.api.launchGame(game.url);  // ← neu statt window.location.href
   });
 
-  // Einstellungen aufklappen
   li.querySelector('.game-settings-toggle')!.addEventListener('click', () => {
     const cfg = li.querySelector('.game-config') as HTMLElement;
     cfg.classList.toggle('open');
   });
 
-  // Credentials speichern
   li.querySelector('.save-creds')!.addEventListener('click', async () => {
     try {
       const user      = (li.querySelector('.user-name')     as HTMLInputElement).value;
@@ -151,10 +136,9 @@ async function renderGameItem(game: GameConfig): Promise<void> {
 
       window.api.saveUserData({ gameId: game.id, user, password, adminPassword: adminPwd });
 
-      // autoLogin in GameConfig speichern
       const cfg = await window.api.localAppConfig();
       cfg.games = (cfg.games ?? []).map(g =>
-      g.id === game.id ? { ...g, autoLogin } : g
+        g.id === game.id ? { ...g, autoLogin } : g
       );
       window.api.saveAppConfig(cfg);
 
@@ -164,7 +148,6 @@ async function renderGameItem(game: GameConfig): Promise<void> {
     }
   });
 
-  // Spiel löschen
   li.querySelector('.delete-game')!.addEventListener('click', async () => {
     if (!confirm(`"${game.name}" wirklich entfernen?`)) return;
     const cfg = await getLocalConfig();
@@ -207,19 +190,23 @@ document.getElementById('save-settings')!.addEventListener('click', async () => 
   const getCheck = (id: string) => (document.getElementById(id) as HTMLInputElement).checked;
 
   const patch: Partial<AppConfig> = {
-    backgroundColor:       get('cfg-bg-color'),
-    textColor:             get('cfg-text-color'),
-    accentColor:           get('cfg-accent-color'),
-    background:            get('cfg-background'),
-    cachePath:             get('cfg-cache-path'),
-    autoCacheClear:        getCheck('cfg-auto-cache'),
+    backgroundColor:         get('cfg-bg-color'),
+    textColor:               get('cfg-text-color'),
+    accentColor:             get('cfg-accent-color'),
+    background:              get('cfg-background'),
+    cachePath:               get('cfg-cache-path'),
+    autoCacheClear:          getCheck('cfg-auto-cache'),
     ignoreCertificateErrors: getCheck('cfg-ignore-cert'),
-    // Issue #7: Tastaturlayout
-    keyboardLayout:        get('cfg-keyboard-layout') as AppConfig['keyboardLayout'],
-    // Issue #4: Lobby-Musik
-    lobbyMusic:            get('cfg-lobby-music').split('\n').map(s => s.trim()).filter(Boolean),
-    lobbyMusicVolume:      parseFloat(get('cfg-music-volume')) || 0.4,
-    customCSS:             get('cfg-custom-css'),
+    keyboardLayout:          get('cfg-keyboard-layout') as AppConfig['keyboardLayout'],
+    lobbyMusic:              get('cfg-lobby-music').split('\n').map(s => s.trim()).filter(Boolean),
+    lobbyMusicVolume:        parseFloat(get('cfg-music-volume')) || 0.4,
+    customCSS:               get('cfg-custom-css'),
+    discord: {
+      enabled: true,
+      position: get('cfg-discord-position') as DiscordPanelConfig['position'],
+      size:     parseInt(get('cfg-discord-size')) || 280,
+      url:      get('cfg-discord-url') || 'https://discord.com/app',
+    },
   };
 
   await saveLocalConfig(patch);
@@ -228,6 +215,7 @@ document.getElementById('save-settings')!.addEventListener('click', async () => 
 
   if (patch.cachePath) window.api.setCachePath(patch.cachePath);
   if (patch.lobbyMusic?.length) startLobbyMusic(patch.lobbyMusic, patch.lobbyMusicVolume);
+  if (patch.discord) window.api.setDiscordPanel(patch.discord);
 
   document.getElementById('settings-panel')!.classList.remove('open');
   showToast('Einstellungen gespeichert');
@@ -243,12 +231,19 @@ document.querySelectorAll('[data-quantum]').forEach(btn => {
   btn.addEventListener('click', () => {
     const frames = parseInt((btn as HTMLElement).dataset.quantum ?? '256');
     window.api.setPipewireQuantum(frames);
-    // active-Klasse umschalten
     document.querySelectorAll('[data-quantum]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     showToast(`PipeWire: ${frames} Frames`);
   });
 });
+
+document.getElementById('discord-toggle')!.addEventListener('click', () => {
+  window.api.toggleDiscord();
+});
+
+// ─── Discord Splitter ─────────────────────────────────────────────────────────
+
+
 
 // ─── System-Info ──────────────────────────────────────────────────────────────
 
@@ -296,7 +291,7 @@ async function migrateFromLocalStorage(): Promise<void> {
   window.api.saveAppConfig(current);
 }
 
-// ─── Settings-Panel mit gespeicherten Werten befüllen ─────────────────────────
+// ─── Settings-Panel befüllen ──────────────────────────────────────────────────
 
 async function populateSettings(cfg: Partial<AppConfig>): Promise<void> {
   const set = (id: string, val: string) => {
@@ -317,8 +312,14 @@ async function populateSettings(cfg: Partial<AppConfig>): Promise<void> {
   set('cfg-lobby-music',     (cfg.lobbyMusic ?? []).join('\n'));
   set('cfg-music-volume',    String(cfg.lobbyMusicVolume ?? 0.4));
   set('cfg-custom-css',      cfg.customCSS       ?? '');
-  setCheck('cfg-auto-cache',   cfg.autoCacheClear         ?? false);
-  setCheck('cfg-ignore-cert',  cfg.ignoreCertificateErrors ?? false);
+  setCheck('cfg-auto-cache',  cfg.autoCacheClear          ?? false);
+  setCheck('cfg-ignore-cert', cfg.ignoreCertificateErrors ?? false);
+
+  // Discord
+  const discord = cfg.discord ?? { position: 'bottom', size: 280, url: 'https://discord.com/app', enabled: false };
+  set('cfg-discord-position', discord.position);
+  set('cfg-discord-size',     String(discord.size));
+  set('cfg-discord-url',      discord.url);
 }
 
 // ─── Initialisierung ──────────────────────────────────────────────────────────
@@ -326,7 +327,6 @@ async function populateSettings(cfg: Partial<AppConfig>): Promise<void> {
 async function init(): Promise<void> {
   await migrateFromLocalStorage();
 
-  // App-Config laden (config.json + userData merged)
   let config: AppConfig;
   try { config = await window.api.appConfig(); }
   catch { config = { games: [] } as AppConfig; }
@@ -338,7 +338,6 @@ async function init(): Promise<void> {
   await populateSettings({ ...config, ...localCfg });
   await populateSystemInfo();
 
-  // Issue #14: Update-Check gegen richtiges Repo, zeigt kein Update für eigene Version
   const appVersion = await window.api.appVersion();
   document.getElementById('app-version')!.textContent = `v${appVersion}`;
   try {
@@ -351,17 +350,16 @@ async function init(): Promise<void> {
       banner.querySelector('.latest-version')!.textContent = latest;
       banner.classList.remove('hidden');
     }
-  } catch { /* Update-Check schlägt still fehl – kein Problem */ }
+  } catch { /* Update-Check schlägt still fehl */ }
 
-  // Spiele rendern
   const allGames = config.games ?? [];
   for (const game of allGames) {
     await renderGameItem(game);
   }
 
-  // Lobby-Musik starten
   const music = localCfg.lobbyMusic ?? config.lobbyMusic ?? [];
   if (music.length) startLobbyMusic(music, localCfg.lobbyMusicVolume ?? config.lobbyMusicVolume ?? 0.4);
+
 }
 
 init();

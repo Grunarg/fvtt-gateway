@@ -23,7 +23,7 @@
     "vite": "^6.0.0"
   },
   "scripts": {
-    "start": "electron-forge start",
+    "start": "ELECTRON_OZONE_PLATFORM_HINT=wayland electron-forge start",
     "make": "electron-forge make",
     "make:linux": "electron-forge make --platform linux",
     "make:appimage": "electron-builder --linux AppImage",

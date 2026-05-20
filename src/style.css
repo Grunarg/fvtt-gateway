@@ -493,3 +493,36 @@ fieldset.settings-group label {
 body[data-keyboard-layout="azerty"] { }
 body[data-keyboard-layout="qwerty"] { }
 body[data-keyboard-layout="qwertz"] { }
+
+/* ─── Discord Splitter ──────────────────────────────────────────────────────── */
+.discord-splitter {
+  position: fixed;
+  z-index: 9999;
+  background: rgba(200, 168, 75, 0.3);
+  transition: background 0.2s;
+}
+.discord-splitter:hover,
+body.dragging .discord-splitter {
+  background: rgba(200, 168, 75, 0.7);
+}
+.splitter-bottom,
+.splitter-top {
+  height: 4px;
+  cursor: ns-resize;
+  left: 0;
+  right: 0;
+}
+.splitter-left,
+.splitter-right {
+  width: 4px;
+  cursor: ew-resize;
+  top: 0;
+  bottom: 0;
+}
+body.dragging {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.discord-splitter.hidden {
+  display: none;
+}
