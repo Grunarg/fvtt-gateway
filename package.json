@@ -1,7 +1,7 @@
 {
   "name": "fvtt-gateway",
   "packageManager": "yarn@1.22.22",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "FoundryVTT Desktop Client für Linux (Wayland, AMD, PipeWire)",
   "license": "MIT",
   "main": ".vite/build/main.js",

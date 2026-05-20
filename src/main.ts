@@ -243,36 +243,52 @@ function readAppConfig(): AppConfig {
 
   function injectSplitterInDiscord(wc: Electron.WebContents): void {
     const size = discordConfig.size;
+    const pos = discordConfig.position;
     const target = foundryView?.webContents ?? wc;
+
+    const isVertical = pos === 'bottom' || pos === 'top';
+    const cursor = isVertical ? 'ns-resize' : 'ew-resize';
+
+    // Splitter-Style je nach Position
+    const baseStyle = `position:fixed;z-index:2147483647;background:rgba(200,168,75,0.6);cursor:${cursor};pointer-events:all;`;
+    const posStyle = isVertical
+    ? `left:0;right:0;height:8px;${pos === 'bottom' ? 'bottom:0' : 'top:0'};`
+    : `top:0;bottom:0;width:8px;${pos === 'right' ? 'right:0' : 'left:0'};`;
+
+    // Bewegungsrichtung und Vorzeichen
+    const axis = isVertical ? 'clientY' : 'clientX';
+    const sign = (pos === 'bottom' || pos === 'right') ? 1 : -1;
+    const edge = pos === 'bottom' ? 'bottom' : pos === 'top' ? 'top' : pos === 'right' ? 'right' : 'left';
+
     target.executeJavaScript(`
-      (() => {
-        document.getElementById('fvtt-discord-splitter')?.remove();
-        const splitter = document.createElement('div');
-        splitter.id = 'fvtt-discord-splitter';
-        splitter.style.cssText = 'position:fixed;z-index:2147483647;background:rgba(200,168,75,0.6);cursor:ns-resize;left:0;right:0;height:8px;bottom:0;pointer-events:all;';
-        let dragging = false, startY = 0, currentSize = ${size};
-        splitter.addEventListener('mousedown', (e) => {
-          dragging = true;
-          startY = e.clientY;
-          document.body.style.userSelect = 'none';
-          e.preventDefault();
-          e.stopPropagation();
-        }, true);
-        window.addEventListener('mousemove', (e) => {
-          if (!dragging) return;
-          const diff = startY - e.clientY;
-          const newSize = Math.max(100, Math.min(800, currentSize + diff));
-          currentSize = newSize;
-          startY = e.clientY;
-          document.getElementById('fvtt-discord-splitter').style.bottom = '0px';
-          window.api.setDiscordPanel({ size: newSize });
-        }, true);
-        window.addEventListener('mouseup', () => {
-          dragging = false;
-          document.body.style.userSelect = '';
-        }, true);
-        document.body.appendChild(splitter);
-      })();
+    (() => {
+      document.getElementById('fvtt-discord-splitter')?.remove();
+      const splitter = document.createElement('div');
+      splitter.id = 'fvtt-discord-splitter';
+    splitter.style.cssText = '${baseStyle}${posStyle}';
+    let dragging = false, startPos = 0, currentSize = ${size};
+    splitter.addEventListener('mousedown', (e) => {
+      dragging = true;
+      startPos = e.${axis};
+      document.body.style.userSelect = 'none';
+    e.preventDefault();
+    e.stopPropagation();
+    }, true);
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const diff = (startPos - e.${axis}) * ${sign};
+      const newSize = Math.max(100, Math.min(800, currentSize + diff));
+      currentSize = newSize;
+      startPos = e.${axis};
+      splitter.style['${edge}'] = '0px';
+    window.api.setDiscordPanel({ size: newSize });
+    }, true);
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      document.body.style.userSelect = '';
+    }, true);
+    document.body.appendChild(splitter);
+    })();
     `).catch(e => console.error('[Splitter] JS Fehler:', e.message));
   }
 
