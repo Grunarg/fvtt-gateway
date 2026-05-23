@@ -1,60 +1,52 @@
 # fvtt-gateway
 
-Ein FoundryVTT Desktop Client, optimiert für CachyOS/Linux (Wayland, AMD, PipeWire).
+A FoundryVTT Desktop Client optimized for Linux (Wayland, AMD, PipeWire).
 
-Basiert auf [OmegaRogue/fvtt-player-client](https://github.com/OmegaRogue/fvtt-player-client),
-welches selbst ein Fork von [theripper93/fvtt-player-client](https://github.com/theripper93/fvtt-player-client) ist.
+Based on [OmegaRogue/fvtt-player-client](https://github.com/OmegaRogue/fvtt-player-client),
+which itself is a fork of [theripper93/fvtt-player-client](https://github.com/theripper93/fvtt-player-client).
 
-## Änderungen gegenüber dem Original
+## Features
 
-- Electron 36 / Chromium 132 (Original: Electron 29 / Chromium 122)
-- Wayland-native (KDE Plasma 6 / KWin, kein XWayland)
-- AMD VA-API Hardware-Dekodierung (RADV/radeonsi)
-- PipeWire WebRTC-Integration für LiveKit PTT
-- PipeWire Quantum-Steuerung direkt im Menü
-- Auto-Login Fix für Foundry V13 (neue DOM-Struktur)
-- Tastaturlayout-Einstellung (QWERTZ/QWERTY/AZERTY)
-- Lobby-Musik
-- Bugfix: Crash beim Beenden
+- **Discord Integration** – embedded Discord panel with resizable splitter, microphone and camera support
+- **Wayland-native** – KDE Plasma 6 / KWin, no XWayland
+- **AMD GPU** – VA-API hardware decoding (RADV/radeonsi)
+- **PipeWire** – WebRTC integration for LiveKit PTT, quantum control via menu
+- **Auto-Login** – per server, compatible with Foundry V13
+- **Multi-Server** – manage multiple FoundryVTT servers with saved credentials
+- **Lobby Music** – playlist support while on the server selection screen
+- **Keyboard Layout** – QWERTZ/QWERTY/AZERTY support
 
 ## Installation
 
+### AppImage (recommended)
+1. Download `fvtt-gateway-2.1.1.AppImage` from [Releases](https://github.com/Grunarg/fvtt-gateway/releases/latest)
+2. `chmod +x fvtt-gateway-2.1.1.AppImage`
+3. Double-click to launch
+
+### From Source
 ```bash
 yarn install
-./launch-cachy.sh
+yarn start
 ```
 
-## Tastenkürzel
+## Requirements
 
-| Kürzel | Aktion |
-|--------|--------|
-| F5 | Neu laden |
+- Linux with Wayland (KDE Plasma 6 recommended)
+- AMD GPU with RADV driver
+- PipeWire
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+D | Toggle Discord panel |
+| F5 | Reload |
 | Shift+F5 | Hard Reload |
-| F11 | Vollbild |
+| F11 | Fullscreen |
 | F12 | DevTools |
-| Ctrl+Q | Beenden |
+| Ctrl+Q | Quit |
 
-LICENSE:
-MIT License
+## Attribution
 
-Copyright (c) theripper93
-Copyright (c) OmegaRogue <omegarogue@omegavoid.codes>
-Copyright (c) 2025 grunarg
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Based on [OmegaRogue/fvtt-player-client](https://github.com/OmegaRogue/fvtt-player-client)
+and [theripper93/fvtt-player-client](https://github.com/theripper93/fvtt-player-client).
