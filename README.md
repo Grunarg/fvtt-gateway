@@ -50,3 +50,7 @@ yarn start
 
 Based on [OmegaRogue/fvtt-player-client](https://github.com/OmegaRogue/fvtt-player-client)
 and [theripper93/fvtt-player-client](https://github.com/theripper93/fvtt-player-client).
+
+## Development
+
+This project was developed with the assistance of [Claude](https://claude.ai) by Anthropic.
