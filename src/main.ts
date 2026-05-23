@@ -10,6 +10,9 @@ import { exec } from 'child_process';
 process.env['ELECTRON_OZONE_PLATFORM_HINT'] = 'wayland';
 process.env['LIBVA_DRIVER_NAME'] = 'radeonsi';
 
+// MaxListeners erhöhen
+require('events').EventEmitter.defaultMaxListeners = 20;
+
 if (require('electron-squirrel-startup')) app.quit();
 
 if (app.isPackaged) {
@@ -198,6 +201,16 @@ function readAppConfig(): AppConfig {
 
   function createDiscordView(win: BrowserWindow): void {
     if (discordView) { win.removeBrowserView(discordView); discordView = null; }
+
+    // Discord-Session mit PipeWire/Mikrofon-Support konfigurieren
+    const discordSession = session.fromPartition('persist:discord');
+    discordSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      if (['media', 'microphone', 'camera', 'audioCapture', 'videoCapture'].includes(permission)) {
+        callback(true);
+      } else {
+        callback(false);
+      }
+    });
 
     discordView = new (require('electron').BrowserView)({
       webPreferences: {
