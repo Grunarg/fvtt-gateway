@@ -8,7 +8,5 @@ linux:
     - AppImage
   category: Game
 files:
-  - .vite/**/*
-  - package.json
-  - config.json
+  - "**/*"
 afterPack: build/afterPack.js

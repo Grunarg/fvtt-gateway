@@ -12,7 +12,7 @@ exports.default = async function(context) {
     fs.writeFileSync(exePath, `#!/bin/bash
     export ELECTRON_OZONE_PLATFORM_HINT=wayland
     export LIBVA_DRIVER_NAME=radeonsi
-    exec "$(dirname "$0")/fvtt-gateway.bin" --no-sandbox "$@"
+    exec "$(dirname "$0")/fvtt-gateway.bin" --no-sandbox --ozone-platform=wayland "$@"
     `);
     fs.chmodSync(exePath, '755');
 };

@@ -3,7 +3,7 @@ import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
-import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
+// AutoUnpackNativesPlugin entfernt
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -20,7 +20,7 @@ const config: ForgeConfig = {
     { name: 'electron-forge-maker-appimage', platforms: ['linux'] },
   ],
   plugins: [
-    new AutoUnpackNativesPlugin({}),
+    // AutoUnpackNativesPlugin entfernt
     new VitePlugin({
       build: [
         { entry: 'src/main.ts',    config: 'vite.main.config.ts' },
