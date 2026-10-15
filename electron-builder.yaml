@@ -7,6 +7,9 @@ linux:
   target:
     - AppImage
   category: Game
+# Nur die Vite-Bundles packen (Quellcode, Configs etc. gehören nicht ins AppImage)
 files:
-  - "**/*"
+  - ".vite/**"
+  - "package.json"
+  - "config.json"
 afterPack: build/afterPack.js

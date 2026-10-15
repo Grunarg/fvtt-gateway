@@ -25,9 +25,11 @@
   },
   "scripts": {
     "start": "ELECTRON_OZONE_PLATFORM_HINT=wayland electron-forge start",
+    "typecheck": "tsc --noEmit -p .",
+    "build": "yarn typecheck && node scripts/build-vite.mjs",
+    "make:appimage": "yarn build && electron-builder --linux AppImage",
     "make": "electron-forge make",
     "make:linux": "electron-forge make --platform linux",
-    "make:appimage": "electron-builder --linux AppImage",
     "package": "electron-forge package"
   }
 }
