@@ -9,7 +9,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'fvtt-gateway',
     executableName: 'fvtt-gateway',
-    appVersion: '2.2.0',
+    appVersion: '2.3.0',
     asar: true,
   },
   rebuildConfig: {},
