@@ -10,7 +10,7 @@ const config: ForgeConfig = {
     name: 'fvtt-gateway',
     executableName: 'fvtt-gateway',
     icon: 'build/icon',
-    appVersion: '2.3.1',
+    appVersion: '2.3.2',
     asar: true,
   },
   rebuildConfig: {},
