@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#26264d"/>
+      <stop offset="1" stop-color="#0d0d1a"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="256" cy="300" r="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f3d98a" stop-opacity="0.75"/>
+      <stop offset="0.45" stop-color="#c8a84b" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#c8a84b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0d27a"/>
+      <stop offset="1" stop-color="#b08a32"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hintergrund -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+  <rect x="19" y="19" width="474" height="474" rx="105" fill="none" stroke="#c8a84b" stroke-opacity="0.35" stroke-width="6"/>
+
+  <!-- Portal -->
+  <path d="M156 412 V236 A100 100 0 0 1 356 236 V412 Z" fill="#14142a"/>
+  <path d="M156 412 V236 A100 100 0 0 1 356 236 V412 Z" fill="url(#glow)"/>
+
+  <!-- Torbogen -->
+  <path d="M136 412 V236 A120 120 0 0 1 376 236 V412" fill="none" stroke="url(#gold)" stroke-width="28"/>
+  <polygon points="241,94 271,94 278,138 234,138" fill="#f0d27a" stroke="#8a6a22" stroke-width="3"/>
+  <line x1="100" y1="420" x2="412" y2="420" stroke="#b8923a" stroke-width="20" stroke-linecap="round"/>
+
+  <!-- W20 -->
+  <g stroke="#0d0d1a" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="256,220 325,260 325,340 256,380 187,340 187,260" fill="url(#gold)"/>
+    <polygon points="256,250 213,326 299,326" fill="#f3dc95"/>
+    <path d="M256 220 L256 250 M325 260 L256 250 M325 260 L299 326 M325 340 L299 326
+             M256 380 L213 326 M256 380 L299 326 M187 340 L213 326 M187 260 L213 326 M187 260 L256 250" fill="none"/>
+  </g>
+</svg>

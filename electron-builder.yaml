@@ -4,6 +4,7 @@ executableName: fvtt-gateway
 directories:
   output: out/appimage
 linux:
+  icon: build/icon.png
   target:
     - AppImage
   category: Game
