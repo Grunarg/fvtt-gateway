@@ -17,9 +17,10 @@ if (app.isPackaged) {
 }
 
 app.commandLine.appendSwitch('ozone-platform', 'wayland');
+// Chromium 146: Accelerated* ersetzt die alten Vaapi*-Namen (sonst nur Software-Encoding)
 app.commandLine.appendSwitch('enable-features', [
-  'SharedArrayBuffer','WaylandWindowDecorations','UseOzonePlatform',
-  'VaapiVideoDecodeLinuxGL','VaapiVideoEncoder','WebGPU',
+  'SharedArrayBuffer','WaylandWindowDecorations',
+  'AcceleratedVideoDecodeLinuxGL','AcceleratedVideoEncoder',
   'WebRTCPipeWireCapturer','CanvasOopRasterization',
 ].join(','));
 app.commandLine.appendSwitch('disable-features','UseChromeOSDirectVideoDecoder');
@@ -30,9 +31,6 @@ app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('force_high_performance_gpu');
 app.commandLine.appendSwitch('force-fieldtrials',
                              'WebRTC-Audio-Red-For-Opus/Enabled/WebRTC-Audio-OpusMinPacketLossRate/Enabled-1/');
-app.commandLine.appendSwitch('disable-background-timer-throttling');
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 // Nur ein Fenster – ein zweiter Start holt das bestehende nach vorne
 if (!app.requestSingleInstanceLock()) app.exit(0);
@@ -411,9 +409,8 @@ function returnToLauncher(): void {
 function createDiscordView(): void {
   session.fromPartition('persist:discord').setPermissionRequestHandler(allowOnly(DISCORD_PERMISSIONS));
 
-  discordView = new WebContentsView({
-    webPreferences: { partition: 'persist:discord', backgroundThrottling: false },
-  });
+  // Mit Drosselung: ausgeblendet pausiert das Rendering, Voice (WebRTC) läuft weiter
+  discordView = new WebContentsView({ webPreferences: { partition: 'persist:discord' } });
   const wc = discordView.webContents;
   wc.setUserAgent(
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
