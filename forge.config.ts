@@ -17,14 +17,16 @@ const config: ForgeConfig = {
     new MakerZIP({}),
     new MakerDeb({ options: { productName: 'FoundryVTT Client', categories: ['Game'] } }),
     new MakerRpm({ options: { productName: 'FoundryVTT Client' } }),
-    { name: 'electron-forge-maker-appimage', platforms: ['linux'] },
+    { name: 'electron-forge-maker-appimage', platforms: ['linux'], config: {} },
   ],
   plugins: [
     // AutoUnpackNativesPlugin entfernt
     new VitePlugin({
       build: [
         { entry: 'src/main.ts',    config: 'vite.main.config.ts' },
-        { entry: 'src/preload.ts', config: 'vite.preload.config.ts' },
+        { entry: 'src/preload.ts',          config: 'vite.preload.config.ts' },
+        { entry: 'src/preload-foundry.ts',  config: 'vite.preload.config.ts' },
+        { entry: 'src/preload-splitter.ts', config: 'vite.preload.config.ts' },
       ],
       renderer: [
         { name: 'main_window', config: 'vite.renderer.config.ts' },

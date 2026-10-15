@@ -6,14 +6,14 @@
   <title>FoundryVTT</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-  <script crossorigin src="https://kit.fontawesome.com/d9351ab632.js"></script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * data: blob: file:; media-src * blob: file:; connect-src 'self' ws: https://api.github.com">
 </head>
 <body>
   <!-- Update-Banner (Issue #14) -->
   <div id="update-banner" class="hidden">
     <i class="fas fa-scroll"></i>
     Eine neue Version ist verfügbar: <strong class="latest-version"></strong>
-    <a href="https://github.com/OmegaRogue/fvtt-player-client/releases/latest" target="_blank">
+    <a href="https://github.com/Grunarg/fvtt-gateway/releases/latest" target="_blank">
       Herunterladen
     </a>
   </div>
@@ -59,7 +59,7 @@
     <aside id="settings-panel" class="settings-panel">
       <div class="settings-header">
         <h2>Einstellungen</h2>
-        <button id="close-settings" class="icon-btn" onclick="document.getElementById('settings-panel').classList.remove('open')">
+        <button id="close-settings" class="icon-btn">
           <i class="fas fa-times"></i>
         </button>
       </div>

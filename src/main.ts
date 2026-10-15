@@ -1,19 +1,15 @@
-// fvtt-cachy-client – Main Process
-// Fixes: #7 (AZERTY), #8 (Auto-Login V12/V13), #13 (Chromium zu alt → Electron 36)
-//        #14 (Version-Check gegen eigenes Repo), GPU-Acceleration auf Wayland/AMD
+// fvtt-gateway – Main Process
+// Ein Fenster: Launcher bzw. Foundry, optional Discord-Panel mit verschiebbarer Trennlinie.
+// Jede Ansicht ist eine eigene WebContentsView mit eigenem, minimalem Preload.
 
-import { app, BrowserWindow, ipcMain, safeStorage, session, Menu } from 'electron';
+import { app, BaseWindow, WebContentsView, ipcMain, safeStorage, session, shell, Menu } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 
 process.env['ELECTRON_OZONE_PLATFORM_HINT'] = 'wayland';
-process.env['LIBVA_DRIVER_NAME'] = 'radeonsi';
-
-// MaxListeners erhöhen
-require('events').EventEmitter.defaultMaxListeners = 20;
-
-if (require('electron-squirrel-startup')) app.quit();
+process.env['LIBVA_DRIVER_NAME'] ??= 'radeonsi';
 
 if (app.isPackaged) {
   app.commandLine.appendSwitch('no-sandbox');
@@ -34,13 +30,14 @@ app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('force_high_performance_gpu');
 app.commandLine.appendSwitch('force-fieldtrials',
                              'WebRTC-Audio-Red-For-Opus/Enabled/WebRTC-Audio-OpusMinPacketLossRate/Enabled-1/');
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048 --turbofan --expose-gc');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
-const isSingleInstance = app.requestSingleInstanceLock();
-if (!isSingleInstance) { app.quit(); }
+// Nur ein Fenster – ein zweiter Start holt das bestehende nach vorne
+if (!app.requestSingleInstanceLock()) app.exit(0);
+
+// ─── Persistenz ──────────────────────────────────────────────────────────────
 
 const USER_DATA_FILE = () => path.join(app.getPath('userData'), 'userData.json');
 const APP_CONFIG_FILE = () => {
@@ -50,11 +47,25 @@ const APP_CONFIG_FILE = () => {
 };
 
 function readUserData(): UserData {
-  try { return JSON.parse(fs.readFileSync(USER_DATA_FILE()).toString()); }
+  const file = USER_DATA_FILE();
+  let raw: string;
+  try { raw = fs.readFileSync(file, 'utf8'); }
   catch { return {}; }
+  try { return JSON.parse(raw); }
+  catch {
+    // Beschädigte Datei beiseitelegen statt sie beim nächsten Speichern zu überschreiben
+    const backup = `${file}.corrupt-${Date.now()}`;
+    try { fs.renameSync(file, backup); } catch { /* ignorieren */ }
+    console.error(`[userData] Datei beschädigt, gesichert als ${backup}`);
+    return {};
+  }
 }
 function writeUserData(data: UserData): void {
-  fs.writeFileSync(USER_DATA_FILE(), JSON.stringify(data, null, 2));
+  // Atomar: erst temporär schreiben, dann umbenennen
+  const file = USER_DATA_FILE();
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file);
 }
 function readAppConfig(): AppConfig {
   const defaults: AppConfig = {
@@ -73,527 +84,603 @@ function readAppConfig(): AppConfig {
 { const ud = readUserData();
   if (ud.cachePath && typeof ud.cachePath === 'string') app.setPath('sessionData', ud.cachePath); }
 
-  function getLoginDetails(gameId: GameId): GameUserDataDecrypted {
-    const ud = readUserData();
-    const entry = ud[gameId as string] as GameUserData | undefined;
-    if (!entry) return { user: '', password: '', adminPassword: '' };
-    const dec = (arr: number[]): string => {
-      if (!arr?.length) return '';
-      if (!safeStorage.isEncryptionAvailable()) return '';
-      try { return safeStorage.decryptString(Buffer.from(new Uint8Array(arr))); }
-      catch { return ''; }
-    };
-    return { user: entry.user ?? '', password: dec(entry.password ?? []), adminPassword: dec(entry.adminPassword ?? []) };
-  }
-
-  function saveLoginDetails(gameId: GameId, user: string, password: string, adminPassword: string): void {
-    const ud = readUserData();
-    const existing = ud[gameId as string] as GameUserData | undefined;
-    const enc = (s: string, fallback: number[]): number[] => {
-      if (!s) return fallback ?? [];
-      if (!safeStorage.isEncryptionAvailable()) return [];
-      return Array.from(safeStorage.encryptString(s));
-    };
-    ud[gameId as string] = {
-      user: user || existing?.user || '',
-      password: enc(password, existing?.password ?? []),
-      adminPassword: enc(adminPassword, existing?.adminPassword ?? []),
-    };
-    writeUserData(ud);
-  }
-
-  const windowsData: WindowsData = {};
-  let partitionCounter = 0;
-
-  function getSession(): Electron.Session {
-    const id = partitionCounter++;
-    if (id === 0) return session.defaultSession;
-    return session.fromPartition(`persist:${id}`, { cache: true });
-  }
-
-  function rendererPath(): string {
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) return MAIN_WINDOW_VITE_DEV_SERVER_URL;
-    return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
-  }
-
-  // ─── Discord & Foundry BrowserViews ──────────────────────────────────────────
-
-  let discordView: Electron.BrowserView | null = null;
-  let foundryView: Electron.BrowserView | null = null;
-  let discordVisible = false;
-  let discordConfig: DiscordPanelConfig = {
-    enabled: false, position: 'bottom', size: 280, url: 'https://discord.com/app',
+function getLoginDetails(gameId: GameId): GameUserDataDecrypted {
+  const ud = readUserData();
+  const entry = ud[gameId as string] as GameUserData | undefined;
+  if (!entry) return { user: '', password: '', adminPassword: '' };
+  const dec = (arr: number[]): string => {
+    if (!arr?.length) return '';
+    if (!safeStorage.isEncryptionAvailable()) return '';
+    try { return safeStorage.decryptString(Buffer.from(new Uint8Array(arr))); }
+    catch { return ''; }
   };
+  return { user: entry.user ?? '', password: dec(entry.password ?? []), adminPassword: dec(entry.adminPassword ?? []) };
+}
 
-  function getDiscordBounds(win: BrowserWindow, config: DiscordPanelConfig): Electron.Rectangle {
-    const { width, height } = win.getContentBounds();
-    const size = config.size;
-    switch (config.position) {
-      case 'bottom': return { x: 0, y: height - size, width, height: size };
-      case 'top':    return { x: 0, y: 0, width, height: size };
-      case 'left':   return { x: 0, y: 0, width: size, height };
-      case 'right':  return { x: width - size, y: 0, width: size, height };
-    }
+function saveLoginDetails(gameId: GameId, user: string, password: string, adminPassword: string): void {
+  const ud = readUserData();
+  const existing = ud[gameId as string] as GameUserData | undefined;
+  const enc = (s: string, fallback: number[]): number[] => {
+    if (!s) return fallback ?? [];
+    if (!safeStorage.isEncryptionAvailable()) return [];
+    return Array.from(safeStorage.encryptString(s));
+  };
+  ud[gameId as string] = {
+    user: user || existing?.user || '',
+    password: enc(password, existing?.password ?? []),
+    adminPassword: enc(adminPassword, existing?.adminPassword ?? []),
+  };
+  writeUserData(ud);
+}
+
+// ─── Fenster-Zustand ─────────────────────────────────────────────────────────
+
+const SPLITTER_PX = 6;
+const MIN_PANEL   = 150;
+const MIN_MAIN    = 300;
+const POSITIONS: DiscordPanelConfig['position'][] = ['top', 'bottom', 'left', 'right'];
+
+let win: BaseWindow;
+let launcherView: WebContentsView | null = null;
+let foundryView:  WebContentsView | null = null;
+let discordView:  WebContentsView | null = null;
+let splitterView: WebContentsView | null = null;
+let discordVisible   = false;
+let splitterDragging = false;
+let currentGameId: GameId | null = null;
+let autoLoginPending = true;
+let discordConfig: DiscordPanelConfig = {
+  enabled: false, position: 'bottom', size: 280, url: 'https://discord.com/app',
+};
+
+const preloadPath = (name: string) => path.join(__dirname, `${name}.js`);
+
+function rendererPath(): string {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) return MAIN_WINDOW_VITE_DEV_SERVER_URL;
+  return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+}
+
+function openExternal(url: string): void {
+  if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+}
+
+// ─── Layout ──────────────────────────────────────────────────────────────────
+
+const isVertical = () => discordConfig.position === 'top' || discordConfig.position === 'bottom';
+
+function clampPanelSize(size: number, total: number): number {
+  const max = Math.max(MIN_PANEL, total - MIN_MAIN - SPLITTER_PX);
+  return Math.round(Math.min(max, Math.max(MIN_PANEL, size)));
+}
+
+function computeLayout(width: number, height: number) {
+  const size = clampPanelSize(discordConfig.size, isVertical() ? height : width);
+  const rest = (isVertical() ? height : width) - size - SPLITTER_PX;
+  const S = SPLITTER_PX;
+  switch (discordConfig.position) {
+    case 'right':  return { main: { x: 0, y: 0, width: rest, height }, splitter: { x: rest, y: 0, width: S, height }, discord: { x: rest + S, y: 0, width: size, height } };
+    case 'left':   return { discord: { x: 0, y: 0, width: size, height }, splitter: { x: size, y: 0, width: S, height }, main: { x: size + S, y: 0, width: rest, height } };
+    case 'bottom': return { main: { x: 0, y: 0, width, height: rest }, splitter: { x: 0, y: rest, width, height: S }, discord: { x: 0, y: rest + S, width, height: size } };
+    case 'top':    return { discord: { x: 0, y: 0, width, height: size }, splitter: { x: 0, y: size, width, height: S }, main: { x: 0, y: size + S, width, height: rest } };
   }
+}
 
-  function getFoundryBounds(win: BrowserWindow, config: DiscordPanelConfig): Electron.Rectangle {
-    const { width, height } = win.getContentBounds();
-    const size = config.size;
-    if (!discordVisible) return { x: 0, y: 0, width, height };
-    switch (config.position) {
-      case 'bottom': return { x: 0, y: 0, width, height: height - size };
-      case 'top':    return { x: 0, y: size, width, height: height - size };
-      case 'left':   return { x: size, y: 0, width: width - size, height };
-      case 'right':  return { x: 0, y: 0, width: width - size, height };
-    }
+function updateLayout(): void {
+  if (!win || win.isDestroyed()) return;
+  const { width, height } = win.getContentBounds();
+  const full = { x: 0, y: 0, width, height };
+  const layout = computeLayout(width, height);
+  const main = discordVisible ? layout.main : full;
+
+  launcherView?.setBounds(main);
+  foundryView?.setBounds(main);
+  if (discordView) {
+    discordView.setVisible(discordVisible);
+    if (discordVisible) discordView.setBounds(layout.discord);
   }
-
-  function updateLayout(win: BrowserWindow): void {
-    if (foundryView) foundryView.setBounds(getFoundryBounds(win, discordConfig));
-    if (discordView && discordVisible) {
-      win.removeBrowserView(discordView);
-      win.addBrowserView(discordView);
-      discordView.setBounds(getDiscordBounds(win, discordConfig));
-    }
+  if (splitterView) {
+    splitterView.setVisible(discordVisible);
+    // Während des Ziehens liegt der Splitter transparent über dem ganzen Fenster,
+    // damit die Maus nicht an Foundry oder Discord verloren geht
+    if (discordVisible) splitterView.setBounds(splitterDragging ? full : layout.splitter);
   }
+}
 
-  function createFoundryView(win: BrowserWindow, url: string): void {
-    if (foundryView) { win.removeBrowserView(foundryView); foundryView = null; }
+// ─── Gemeinsame View-Helfer ──────────────────────────────────────────────────
 
-    foundryView = new (require('electron').BrowserView)({
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-                                                        nodeIntegration: false, contextIsolation: true, webgl: true, backgroundThrottling: false,
-      },
-    });
+function attachShortcuts(wc: WebContents): void {
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F12') wc.toggleDevTools();
+    else if (input.key === 'F5' && input.control) wc.reloadIgnoringCache();
+    else if (input.key === 'F5') wc.reload();
+    else if (input.key === 'F11') win.setFullScreen(!win.isFullScreen());
+    else if (input.control && input.shift && input.key.toLowerCase() === 'l') returnToLauncher();
+    else return;
+    event.preventDefault();
+  });
+}
 
-    foundryView.webContents.setUserAgent(
-      foundryView.webContents.getUserAgent().replace(/\s*Electron\/[\d.]+/, '')
-    );
+type PermissionHandler = Parameters<Electron.Session['setPermissionRequestHandler']>[0];
+function allowOnly(allowed: string[]): PermissionHandler {
+  return (_wc, permission, callback) => callback(allowed.includes(permission));
+}
+const FOUNDRY_PERMISSIONS = ['media', 'fullscreen', 'pointerLock', 'clipboard-sanitized-write', 'notifications', 'speaker-selection'];
+const DISCORD_PERMISSIONS = ['media', 'fullscreen', 'clipboard-sanitized-write', 'notifications'];
 
-    win.addBrowserView(foundryView);
-    const { width, height } = win.getContentBounds();
-    foundryView.setBounds({ x: 0, y: 0, width, height });
-    foundryView.setAutoResize({ width: true, height: true });
+// ─── Launcher ────────────────────────────────────────────────────────────────
 
-    foundryView.webContents.on('did-start-loading', () => {
-      if (!win.isDestroyed()) win.setProgressBar(2, { mode: 'indeterminate' });
-    });
-    foundryView.webContents.on('did-stop-loading', () => {
-      if (!win.isDestroyed()) { win.setProgressBar(-1); win.setTitle(foundryView!.webContents.getTitle()); }
-    });
-    foundryView.webContents.on('did-finish-load', () => {
-      if (!win.isDestroyed()) handleFoundryPageLoad(win, foundryView!);
-    });
-      foundryView.webContents.setWindowOpenHandler(() => ({
-        action: 'allow', overrideBrowserWindowOptions: { parent: win, autoHideMenuBar: true },
-      }));
-      foundryView.webContents.on('before-input-event', (event, input) => {
-        if (input.key === 'F12') { foundryView!.webContents.toggleDevTools(); event.preventDefault(); }
-        else if (input.key === 'F5' && input.control) { foundryView!.webContents.reloadIgnoringCache(); event.preventDefault(); }
-        else if (input.key === 'F5') { foundryView!.webContents.reload(); event.preventDefault(); }
-        else if (input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); event.preventDefault(); }
+function isLauncherUrl(url: string): boolean {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) return url.startsWith(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+  return url.startsWith('file://');
+}
+
+function loadLauncher(): void {
+  if (!launcherView) return;
+  const rp = rendererPath();
+  if (rp.startsWith('http')) launcherView.webContents.loadURL(rp);
+  else launcherView.webContents.loadFile(rp);
+}
+
+function createLauncherView(): void {
+  launcherView = new WebContentsView({ webPreferences: { preload: preloadPath('preload') } });
+  const wc = launcherView.webContents;
+  attachShortcuts(wc);
+  wc.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
+  wc.on('will-navigate', (e, url) => {
+    if (!isLauncherUrl(url)) { e.preventDefault(); openExternal(url); }
+  });
+  win.contentView.addChildView(launcherView);
+  loadLauncher();
+}
+
+// Nur der Launcher (Hauptframe) darf die privilegierte API benutzen
+function fromLauncher(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return !!launcherView && e.sender === launcherView.webContents && e.senderFrame === e.sender.mainFrame;
+}
+function onLauncher(channel: string, handler: (...args: any[]) => void): void {
+  ipcMain.on(channel, (e, ...args) => { if (fromLauncher(e)) handler(...args); });
+}
+function handleLauncher(channel: string, handler: (...args: any[]) => unknown): void {
+  ipcMain.handle(channel, (e, ...args) => {
+    if (!fromLauncher(e)) throw new Error(`IPC "${channel}" nicht erlaubt`);
+    return handler(...args);
+  });
+}
+
+// ─── Foundry ─────────────────────────────────────────────────────────────────
+
+function normalizeGameUrl(raw: string): URL | null {
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const url = new URL(withScheme);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch { return null; }
+}
+
+function createFoundryView(gameUrl: URL): void {
+  closeFoundryView();
+
+  const view = new WebContentsView({
+    webPreferences: { preload: preloadPath('preload-foundry'), backgroundThrottling: false },
+  });
+  foundryView = view;
+  const wc = view.webContents;
+  const origin = gameUrl.origin;
+
+  wc.setUserAgent(wc.getUserAgent().replace(/\s*Electron\/[\d.]+/, ''));
+  attachShortcuts(wc);
+
+  // Popups vom eigenen Server (z. B. PopOut!) erlauben, alles andere im System-Browser öffnen
+  wc.setWindowOpenHandler(({ url }) => {
+    if (normalizeGameUrl(url)?.origin === origin) {
+      return { action: 'allow', overrideBrowserWindowOptions: { parent: win, autoHideMenuBar: true } };
+    }
+    openExternal(url);
+    return { action: 'deny' };
+  });
+
+  wc.on('did-start-loading', () => { if (!win.isDestroyed()) win.setProgressBar(2, { mode: 'indeterminate' }); });
+  wc.on('did-stop-loading', () => {
+    if (!win.isDestroyed()) { win.setProgressBar(-1); win.setTitle(wc.getTitle()); }
+  });
+  wc.on('did-finish-load', () => handleFoundryPageLoad(wc, origin));
+
+  win.contentView.addChildView(view);
+  launcherView?.setVisible(false);
+  updateLayout();
+  wc.loadURL(gameUrl.href);
+}
+
+function closeFoundryView(): void {
+  if (!foundryView) return;
+  const view = foundryView;
+  foundryView = null;
+  win.contentView.removeChildView(view);
+  // Ohne close() läuft der Renderer (inkl. WebGL, Audio, Socket) unsichtbar weiter
+  view.webContents.close();
+  launcherView?.setVisible(true);
+  updateLayout();
+}
+
+// ─── Foundry-Seiten-Handler ──────────────────────────────────────────────────
+
+function handleFoundryPageLoad(wc: WebContents, origin: string): void {
+  let url: URL;
+  try { url = new URL(wc.getURL()); } catch { return; }
+  // Fremde Seiten (Redirects, Links) bekommen weder Buttons noch Zugangsdaten
+  if (url.origin !== origin) return;
+
+  const p = url.pathname;
+  injectReturnButton(wc, p);
+  if (p.endsWith('/game')) injectInGameReturnButton(wc);
+  if (!p.endsWith('/join') && !p.endsWith('/auth')) return;
+
+  if (currentGameId === null) return;
+  const creds = getLoginDetails(currentGameId);
+  if (!creds.user && !creds.password) return;
+
+  const gameConfig = readAppConfig().games.find(g => String(g.id) === String(currentGameId));
+  const autoLogin  = (gameConfig?.autoLogin ?? true) && autoLoginPending;
+  autoLoginPending = false;
+
+  const user  = JSON.stringify(creds.user);
+  const pwd   = JSON.stringify(creds.password);
+  const admin = JSON.stringify(creds.adminPassword);
+
+  wc.executeJavaScript(`
+  (async function() {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    let attempts = 0;
+    while (attempts++ < 50) { if (document.querySelector('select[name="userid"]')) break; await wait(100); }
+    const select = document.querySelector('select[name="userid"]');
+    if (select) {
+      let found = false;
+      select.querySelectorAll('option').forEach(opt => {
+        if (opt.textContent.trim() === ${user}) { select.value = opt.value; found = true; }
       });
-
-      if (url.startsWith('http')) foundryView.webContents.loadURL(url);
-      else foundryView.webContents.loadFile(url);
-  }
-
-  function createDiscordView(win: BrowserWindow): void {
-    if (discordView) { win.removeBrowserView(discordView); discordView = null; }
-
-    // Discord-Session mit PipeWire/Mikrofon-Support konfigurieren
-    const discordSession = session.fromPartition('persist:discord');
-    discordSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      if (['media', 'microphone', 'camera', 'audioCapture', 'videoCapture'].includes(permission)) {
-        callback(true);
-      } else {
-        callback(false);
-      }
-    });
-
-    discordView = new (require('electron').BrowserView)({
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        partition: 'persist:discord',
-        preload: path.join(__dirname, 'preload.js'),
-      },
-    });
-    discordView.webContents.setUserAgent(
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
-    );
-    win.addBrowserView(discordView);
-    discordView.setBounds(getDiscordBounds(win, discordConfig));
-    discordView.setAutoResize({ width: true, height: false });
-    discordView.webContents.loadURL(discordConfig.url);
-  }
-
-  function toggleDiscord(win: BrowserWindow): void {
-    if (!discordView) createDiscordView(win);
-    discordVisible = !discordVisible;
-    if (discordVisible) {
-      discordView!.setBounds(getDiscordBounds(win, discordConfig));
-      updateLayout(win);
-      if (foundryView) {
-        injectSplitterInDiscord(foundryView.webContents);
-      } else {
-        discordView!.webContents.once('did-finish-load', () => {
-          injectSplitterInDiscord(discordView!.webContents);
-        });
-        if (discordView!.webContents.getURL()) {
-          injectSplitterInDiscord(discordView!.webContents);
-        }
-      }
-    } else {
-      discordView!.setBounds({ x: -10000, y: -10000, width: 1, height: 1 });
-      foundryView?.webContents.executeJavaScript(
-        `document.getElementById('fvtt-discord-splitter')?.remove();`
-      ).catch(() => {});
+      if (!found) select.value = ${user};
+      select.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    updateLayout(win);
-  }
+    const pwInput = document.querySelector('input[name="password"]');
+    if (pwInput) { pwInput.value = ${pwd}; pwInput.dispatchEvent(new Event('input', { bubbles: true })); }
+    const adminInput = document.querySelector('#join-game-setup input[name="adminPassword"]');
+    if (adminInput) { adminInput.value = ${admin}; adminInput.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (${autoLogin}) { await wait(200); document.querySelector('#join-game-form button[name="join"]')?.click(); }
+  })();
+  `).catch(console.error);
+}
 
-  function injectSplitterInDiscord(wc: Electron.WebContents): void {
-    const size = discordConfig.size;
-    const pos = discordConfig.position;
-    const target = foundryView?.webContents ?? wc;
-
-    const isVertical = pos === 'bottom' || pos === 'top';
-    const cursor = isVertical ? 'ns-resize' : 'ew-resize';
-
-    // Splitter-Style je nach Position
-    const baseStyle = `position:fixed;z-index:2147483647;background:rgba(200,168,75,0.6);cursor:${cursor};pointer-events:all;`;
-    const posStyle = isVertical
-    ? `left:0;right:0;height:8px;${pos === 'bottom' ? 'bottom:0' : 'top:0'};`
-    : `top:0;bottom:0;width:8px;${pos === 'right' ? 'right:0' : 'left:0'};`;
-
-    // Bewegungsrichtung und Vorzeichen
-    const axis = isVertical ? 'clientY' : 'clientX';
-    const sign = (pos === 'bottom' || pos === 'right') ? 1 : -1;
-    const edge = pos === 'bottom' ? 'bottom' : pos === 'top' ? 'top' : pos === 'right' ? 'right' : 'left';
-
-    target.executeJavaScript(`
-    (() => {
-      document.getElementById('fvtt-discord-splitter')?.remove();
-      const splitter = document.createElement('div');
-      splitter.id = 'fvtt-discord-splitter';
-    splitter.style.cssText = '${baseStyle}${posStyle}';
-    let dragging = false, startPos = 0, currentSize = ${size};
-    splitter.addEventListener('mousedown', (e) => {
-      dragging = true;
-      startPos = e.${axis};
-      document.body.style.userSelect = 'none';
-    e.preventDefault();
-    e.stopPropagation();
-    }, true);
-    window.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const diff = (startPos - e.${axis}) * ${sign};
-      const newSize = Math.max(100, Math.min(800, currentSize + diff));
-      currentSize = newSize;
-      startPos = e.${axis};
-      splitter.style['${edge}'] = '0px';
-    window.api.setDiscordPanel({ size: newSize });
-    }, true);
-    window.addEventListener('mouseup', () => {
-      dragging = false;
-      document.body.style.userSelect = '';
-    }, true);
-    document.body.appendChild(splitter);
-    })();
-    `).catch(e => console.error('[Splitter] JS Fehler:', e.message));
-  }
-
-  function injectSplitter(wc: Electron.WebContents): void {
-    const size = discordConfig.size;
+function injectReturnButton(wc: WebContents, pathname: string): void {
+  if (pathname.endsWith('/setup')) {
     wc.executeJavaScript(`
-    document.getElementById('fvtt-discord-splitter')?.remove();
-    const splitter = document.createElement('div');
-    splitter.id = 'fvtt-discord-splitter';
-    splitter.style.cssText = 'position:fixed;z-index:99999;background:rgba(200,168,75,0.4);cursor:ns-resize;left:0;right:0;height:6px;bottom:${size}px;transition:background 0.2s;';
-    splitter.addEventListener('mouseenter', () => splitter.style.background = 'rgba(200,168,75,0.8)');
-    splitter.addEventListener('mouseleave', () => splitter.style.background = 'rgba(200,168,75,0.4)');
-    let dragging = false, startY = 0, startSize = ${size};
-    splitter.addEventListener('mousedown', (e) => {
-      dragging = true; startY = e.clientY; startSize = parseInt(splitter.style.bottom);
-      document.body.style.userSelect = 'none'; e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const newSize = Math.max(100, Math.min(800, startSize + (startY - e.clientY)));
-      splitter.style.bottom = newSize + 'px';
-    window.api.setDiscordPanel({ size: newSize });
-    });
-    document.addEventListener('mouseup', () => { dragging = false; document.body.style.userSelect = ''; });
-    document.body.appendChild(splitter);
-  }
-  `).catch(() => {});
-  }
-
-  // ─── Fenster erstellen ────────────────────────────────────────────────────────
-
-  function createGameWindow(): BrowserWindow {
-    const win = new BrowserWindow({
-      show: false, width: 1280, height: 800, backgroundColor: '#1a1a2e',
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-                                  nodeIntegration: false, contextIsolation: true,
-      },
-    });
-
-    win.menuBarVisible = false;
-
-    win.webContents.on('before-input-event', (event, input) => {
-      if (input.key === 'F12') { win.webContents.toggleDevTools(); event.preventDefault(); }
-    });
-
-    win.once('ready-to-show', () => { win.maximize(); win.show(); win.focus(); win.moveTop(); });
-    win.on('resize', () => updateLayout(win));
-
-    const winId = win.webContents.id;
-    windowsData[winId] = { gameId: '', autoLogin: true };
-    win.on('closed', () => { delete windowsData[winId]; });
-
-    return win;
-  }
-
-  // ─── Foundry-Seiten-Handler ───────────────────────────────────────────────────
-
-  function handleFoundryPageLoad(win: BrowserWindow, view: Electron.BrowserView): void {
-    const url = view.webContents.getURL();
-    injectReturnButton(view, url);
-    if (!url.endsWith('/join') && !url.endsWith('/auth')) return;
-
-    const wData = windowsData[win.webContents.id];
-    if (!wData?.gameId) return;
-    const creds = getLoginDetails(wData.gameId);
-    if (!creds.user && !creds.password) return;
-
-    const safeUser  = creds.user.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const safePwd   = creds.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const safeAdmin = creds.adminPassword.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const gameConfig = readAppConfig().games.find(g => String(g.id) === String(wData.gameId));
-    const autoLogin  = (gameConfig?.autoLogin ?? true) && wData.autoLogin;
-    wData.autoLogin  = false;
-
-    view.webContents.executeJavaScript(`
-    (async function() {
-      const wait = ms => new Promise(r => setTimeout(r, ms));
-      let attempts = 0;
-      while (attempts++ < 50) { if (document.querySelector('select[name="userid"]')) break; await wait(100); }
-      const select = document.querySelector('select[name="userid"]');
-      if (select) {
-        let found = false;
-        select.querySelectorAll('option').forEach(opt => {
-          if (opt.textContent.trim() === '${safeUser}') { select.value = opt.value; found = true; }
-        });
-        if (!found) select.value = '${safeUser}';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      const pwInput = document.querySelector('input[name="password"]');
-      if (pwInput) { pwInput.value = '${safePwd}'; pwInput.dispatchEvent(new Event('input', { bubbles: true })); }
-      const adminInput = document.querySelector('#join-game-setup input[name="adminPassword"]');
-      if (adminInput) { adminInput.value = '${safeAdmin}'; adminInput.dispatchEvent(new Event('input', { bubbles: true })); }
-      if (${autoLogin}) { await wait(200); document.querySelector('#join-game-form button[name="join"]')?.click(); }
-    })();
-    `).catch(console.error);
-  }
-
-  function injectReturnButton(view: Electron.BrowserView, url: string): void {
-    if (url.endsWith('/setup')) {
-      view.webContents.executeJavaScript(`
-      if (!document.getElementById('fvtt-client-back')) {
-        const btn = document.createElement('button');
-        btn.id = 'fvtt-client-back'; btn.type = 'button';
+    if (!document.getElementById('fvtt-client-back')) {
+      const btn = document.createElement('button');
+      btn.id = 'fvtt-client-back'; btn.type = 'button';
       btn.setAttribute('data-action', 'returnServerSelect');
       btn.setAttribute('data-tooltip', 'Server auswählen');
       btn.innerHTML = '<i class="fas fa-server"></i>';
       btn.addEventListener('click', () => window.api.returnToSelect());
       setTimeout(() => document.querySelector('nav#setup-menu')?.append(btn), 200);
-      }
-      `).catch(() => {});
-    }
-    if (url.endsWith('/auth') || url.endsWith('/join')) {
-      view.webContents.executeJavaScript(`
-      if (!document.getElementById('fvtt-client-back')) {
-        const btn = document.createElement('button');
-        btn.id = 'fvtt-client-back'; btn.type = 'button'; btn.className = 'bright';
-      btn.innerHTML = '<i class="fa-solid fa-server"></i> Serverauswahl';
-      btn.addEventListener('click', () => window.api.returnToSelect());
-      setTimeout(() => document.querySelector('.form-footer, footer.form-footer')?.append(btn), 200);
-      }
-      `).catch(() => {});
-    }
-  }
-
-  function injectInGameReturnButton(view: Electron.BrowserView): void {
-    view.webContents.executeJavaScript(`
-    if (typeof Hooks !== 'undefined') {
-      Hooks.on('renderSettings', function(app, html) {
-        if (html.find?.('#fvtt-client-back').length > 0) return;
-        if (html.querySelector?.('#fvtt-client-back')) return;
-        const btn = document.createElement('button');
-        btn.id = 'fvtt-client-back';
-      btn.innerHTML = '<i class="fas fa-server"></i> Serverauswahl';
-      btn.addEventListener('click', () => window.api.returnToSelect());
-      (html.find?.('#settings-access')[0] || html.querySelector?.('#settings-access'))?.append(btn);
-      });
     }
     `).catch(() => {});
   }
-
-  function setPipewireQuantum(frames: number): void {
-    exec(`pw-metadata -n settings 0 clock.force-quantum ${frames}`, (err) => {
-      if (err) console.error(`[PipeWire] Fehler: ${err.message}`);
-    });
+  if (pathname.endsWith('/auth') || pathname.endsWith('/join')) {
+    wc.executeJavaScript(`
+    if (!document.getElementById('fvtt-client-back')) {
+      const btn = document.createElement('button');
+      btn.id = 'fvtt-client-back'; btn.type = 'button'; btn.className = 'bright';
+      btn.innerHTML = '<i class="fa-solid fa-server"></i> Serverauswahl';
+      btn.addEventListener('click', () => window.api.returnToSelect());
+      setTimeout(() => document.querySelector('.form-footer, footer.form-footer')?.append(btn), 200);
+    }
+    `).catch(() => {});
   }
+}
 
-  async function getSystemInfo() {
-    const pipewireActive = await new Promise<boolean>(resolve => {
-      exec('pactl info 2>/dev/null | grep -i pipewire', (err, out) => resolve(!err && out.length > 0));
+function injectInGameReturnButton(wc: WebContents): void {
+  wc.executeJavaScript(`
+  if (typeof Hooks !== 'undefined') {
+    Hooks.on('renderSettings', function(app, html) {
+      // V12 liefert jQuery, ab V13 ein HTMLElement
+      const root = html instanceof HTMLElement ? html : html?.[0];
+      if (!root || root.querySelector('#fvtt-client-back')) return;
+      const btn = document.createElement('button');
+      btn.id = 'fvtt-client-back'; btn.type = 'button';
+      btn.innerHTML = '<i class="fas fa-server"></i> Serverauswahl';
+      btn.addEventListener('click', () => window.api.returnToSelect());
+      const target = root.querySelector('#settings-access') ?? root.querySelector('section:last-of-type') ?? root;
+      target.append(btn);
     });
-    return {
-      platform: process.platform, electronVersion: process.versions.electron,
-      chromiumVersion: process.versions.chrome, nodeVersion: process.versions.node,
-      pipewireActive, waylandActive: !!process.env['WAYLAND_DISPLAY'],
+    // Seitenleiste schon gerendert, bevor der Hook registriert war → einmal neu rendern
+    if (typeof ui !== 'undefined' && ui.settings?.rendered) ui.settings.render();
+  }
+  `).catch(() => {});
+}
+
+function returnToLauncher(): void {
+  if (!foundryView) return;
+  closeFoundryView();
+  currentGameId = null;
+  win.setTitle(app.getName());
+  loadLauncher();
+}
+
+// ─── Discord & Splitter ──────────────────────────────────────────────────────
+
+function createDiscordView(): void {
+  session.fromPartition('persist:discord').setPermissionRequestHandler(allowOnly(DISCORD_PERMISSIONS));
+
+  discordView = new WebContentsView({
+    webPreferences: { partition: 'persist:discord', backgroundThrottling: false },
+  });
+  const wc = discordView.webContents;
+  wc.setUserAgent(
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
+  );
+  attachShortcuts(wc);
+  wc.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
+  win.contentView.addChildView(discordView);
+  wc.loadURL(discordConfig.url);
+}
+
+function splitterHtml(): string {
+  const vertical = isVertical();
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
+                 cursor: ${vertical ? 'ns-resize' : 'ew-resize'}; }
+    #bar { position: fixed; inset: 0; background: rgba(200,168,75,0.45); transition: background 0.15s; }
+    body:hover #bar { background: rgba(200,168,75,0.85); }
+    body.dragging #bar { display: none; }
+  </style></head><body><div id="bar"></div><script>
+    let dragging = false, pending = null;
+    addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true; document.body.classList.add('dragging');
+      window.splitter.start(); e.preventDefault();
+    });
+    addEventListener('mousemove', e => {
+      if (!dragging) return;
+      if (pending === null) requestAnimationFrame(() => { window.splitter.move(pending); pending = null; });
+      pending = ${vertical ? 'e.clientY' : 'e.clientX'};
+    });
+    const end = () => {
+      if (!dragging) return;
+      dragging = false; document.body.classList.remove('dragging');
+      window.splitter.end();
     };
+    addEventListener('mouseup', end);
+    addEventListener('blur', end);
+    document.addEventListener('mouseleave', end);
+  </script></body></html>`;
+}
+
+function loadSplitter(): void {
+  splitterView?.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splitterHtml())}`);
+}
+
+function createSplitterView(): void {
+  splitterView = new WebContentsView({ webPreferences: { preload: preloadPath('preload-splitter') } });
+  splitterView.setBackgroundColor('#00000000');
+  splitterView.webContents.on('will-navigate', e => e.preventDefault());
+  win.contentView.addChildView(splitterView);
+  loadSplitter();
+}
+
+function toggleDiscord(): void {
+  if (!discordView) createDiscordView();
+  if (!splitterView) createSplitterView();
+  discordVisible = !discordVisible;
+  updateLayout();
+}
+
+function sanitizeDiscordConfig(c: unknown): Partial<DiscordPanelConfig> {
+  const out: Partial<DiscordPanelConfig> = {};
+  if (!c || typeof c !== 'object') return out;
+  const { position, size, url, enabled } = c as Record<string, unknown>;
+  if (POSITIONS.includes(position as DiscordPanelConfig['position'])) out.position = position as DiscordPanelConfig['position'];
+  if (typeof size === 'number' && Number.isFinite(size)) out.size = Math.round(size);
+  if (typeof url === 'string' && url.startsWith('https://')) out.url = url;
+  if (typeof enabled === 'boolean') out.enabled = enabled;
+  return out;
+}
+
+function saveDiscordConfig(): void {
+  const ud = readUserData();
+  ud.app = { ...(ud.app ?? {}), discord: discordConfig };
+  writeUserData(ud);
+}
+
+function fromSplitter(e: IpcMainEvent): boolean {
+  return !!splitterView && e.sender === splitterView.webContents;
+}
+
+// ─── System ──────────────────────────────────────────────────────────────────
+
+const PIPEWIRE_QUANTA = [64, 128, 256, 512, 1024];
+
+function setPipewireQuantum(frames: unknown): void {
+  if (typeof frames !== 'number' || !PIPEWIRE_QUANTA.includes(frames)) return;
+  execFile('pw-metadata', ['-n', 'settings', '0', 'clock.force-quantum', String(frames)], (err) => {
+    if (err) console.error(`[PipeWire] Fehler: ${err.message}`);
+  });
+}
+
+let pipewireCheck: Promise<boolean> | null = null;
+function detectPipewire(): Promise<boolean> {
+  pipewireCheck ??= new Promise(resolve => {
+    execFile('pactl', ['info'], (err, out) => resolve(!err && /pipewire/i.test(out)));
+  });
+  return pipewireCheck;
+}
+
+async function getSystemInfo(): Promise<SystemInfo> {
+  return {
+    platform: process.platform, electronVersion: process.versions.electron,
+    chromiumVersion: process.versions.chrome, nodeVersion: process.versions.node,
+    pipewireActive: await detectPipewire(), waylandActive: !!process.env['WAYLAND_DISPLAY'],
+  };
+}
+
+function buildMenu(): void {
+  const activeView = () => foundryView ?? launcherView;
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { label: 'FoundryVTT', submenu: [
+      { label: 'Neu laden',   accelerator: 'F5',       click: () => activeView()?.webContents.reload() },
+      { label: 'Hard Reload', accelerator: 'Shift+F5', click: () => activeView()?.webContents.reloadIgnoringCache() },
+      { label: 'Zur Serverauswahl', accelerator: 'Ctrl+Shift+L', click: () => returnToLauncher() },
+      { type: 'separator' },
+      { label: 'Beenden',     accelerator: 'Ctrl+Q',   click: () => app.quit() },
+    ]},
+    { label: 'Ansicht', submenu: [
+      { label: 'Vollbild', accelerator: 'F11', click: () => win?.setFullScreen(!win.isFullScreen()) },
+      { label: 'DevTools', accelerator: 'F12', click: () => activeView()?.webContents.toggleDevTools() },
+    ]},
+    { label: 'Audio (PipeWire)', submenu: [
+      { label: '⚡ Niedrig – 64 Frames  [PTT]',         click: () => setPipewireQuantum(64) },
+      { label: '⚖ Ausgeglichen – 256 Frames [LiveKit]', click: () => setPipewireQuantum(256) },
+      { label: '🎵 Qualität – 1024 Frames [Musik]',     click: () => setPipewireQuantum(1024) },
+    ]},
+    { label: 'Discord', submenu: [
+      { label: 'Discord ein/ausblenden', accelerator: 'Ctrl+D', click: () => toggleDiscord() },
+    ]},
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ─── Fenster erstellen ───────────────────────────────────────────────────────
+
+function createMainWindow(): void {
+  win = new BaseWindow({
+    show: false, width: 1280, height: 800, backgroundColor: '#1a1a2e', autoHideMenuBar: true,
+  });
+  win.setMenuBarVisibility(false);
+
+  createLauncherView();
+
+  for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'] as const) {
+    win.on(ev as 'resize', updateLayout);
   }
-
-  function buildMenu(): void {
-    const template: Electron.MenuItemConstructorOptions[] = [
-      { label: 'FoundryVTT', submenu: [
-        { label: 'Neu laden',   accelerator: 'F5',       click: () => foundryView?.webContents.reload() },
-        { label: 'Hard Reload', accelerator: 'Shift+F5', click: () => foundryView?.webContents.reloadIgnoringCache() },
-        { type: 'separator' },
-        { label: 'Beenden',     accelerator: 'Ctrl+Q',   click: () => app.quit() },
-      ]},
-      { label: 'Ansicht', submenu: [
-        { label: 'Vollbild', accelerator: 'F11', click: () => { const w = BrowserWindow.getFocusedWindow(); if (w) w.setFullScreen(!w.isFullScreen()); }},
-        { label: 'DevTools', accelerator: 'F12', click: () => foundryView?.webContents.toggleDevTools() },
-      ]},
-      { label: 'Audio (PipeWire)', submenu: [
-        { label: '⚡ Niedrig – 64 Frames  [PTT]',         click: () => setPipewireQuantum(64) },
-        { label: '⚖ Ausgeglichen – 256 Frames [LiveKit]', click: () => setPipewireQuantum(256) },
-        { label: '🎵 Qualität – 1024 Frames [Musik]',     click: () => setPipewireQuantum(1024) },
-      ]},
-      { label: 'Discord', submenu: [
-        { label: 'Discord ein/ausblenden', accelerator: 'Ctrl+D',
-          click: () => { const win = BrowserWindow.getFocusedWindow(); if (win) toggleDiscord(win); }},
-      ]},
-    ];
-    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-  }
-
-  app.whenReady().then(() => {
-    const srcConfig = path.join(app.getAppPath(), 'config.json');
-    const dstConfig = path.join(app.getPath('userData'), 'config.json');
-    if (!fs.existsSync(dstConfig) && fs.existsSync(srcConfig)) fs.copyFileSync(srcConfig, dstConfig);
-
-    const savedDiscord = (readUserData().app as any)?.discord;
-    if (savedDiscord) discordConfig = { ...discordConfig, ...savedDiscord };
-
-    buildMenu();
-
-    setInterval(() => {
-      if (global.gc) (global.gc as () => void)();
-      session.defaultSession.clearCache();
-    }, 30 * 60 * 1000);
-
-    const win = createGameWindow();
-    const rp = rendererPath();
-    if (rp.startsWith('http')) win.loadURL(rp);
-    else win.loadFile(rp);
+  win.on('closed', () => {
+    for (const view of [foundryView, discordView, splitterView, launcherView]) view?.webContents.close();
+    foundryView = discordView = splitterView = launcherView = null;
   });
 
-    app.on('second-instance', () => {
-      const win = createGameWindow();
-      const rp = rendererPath();
-      if (rp.startsWith('http')) win.loadURL(rp);
-      else win.loadFile(rp);
-    });
+  win.maximize();
+  win.show();
+  updateLayout();
+}
 
-      app.on('activate', (_, hasVisible) => {
-        if (!hasVisible) {
-          const win = createGameWindow();
-          const rp = rendererPath();
-          if (rp.startsWith('http')) win.loadURL(rp);
-          else win.loadFile(rp);
-        }
-      });
+app.whenReady().then(() => {
+  const srcConfig = path.join(app.getAppPath(), 'config.json');
+  const dstConfig = path.join(app.getPath('userData'), 'config.json');
+  if (!fs.existsSync(dstConfig) && fs.existsSync(srcConfig)) fs.copyFileSync(srcConfig, dstConfig);
 
-      ipcMain.on('open-game', (e, gameId: GameId) => {
-        const win = BrowserWindow.fromWebContents(e.sender);
-        if (!win) return;
-        if (windowsData[e.sender.id]) windowsData[e.sender.id].gameId = gameId;
-        // Foundry in BrowserView laden wenn ein Spiel gestartet wird
-        // (wird von renderer.ts via window.location.href ausgelöst – kein separater IPC nötig)
-      });
+  discordConfig = { ...discordConfig, ...sanitizeDiscordConfig(readUserData().app?.discord) };
 
-        ipcMain.on('launch-game', (e, url: string) => {
-          const win = BrowserWindow.fromWebContents(e.sender);
-          if (win) createFoundryView(win, url);
-        });
+  session.defaultSession.setPermissionRequestHandler(allowOnly(FOUNDRY_PERMISSIONS));
+  if (readAppConfig().autoCacheClear) session.defaultSession.clearCache();
 
-          ipcMain.on('return-select', (e) => {
-            const win = BrowserWindow.fromWebContents(e.sender);
-            if (win && foundryView) { win.removeBrowserView(foundryView); foundryView = null; }
-            if (windowsData[e.sender.id]) windowsData[e.sender.id].autoLogin = true;
-            const rp = rendererPath();
-            if (rp.startsWith('http')) e.sender.loadURL(rp);
-            else e.sender.loadFile(rp);
-          });
+  buildMenu();
+  createMainWindow();
+});
 
-            ipcMain.on('game-loaded', (e) => {
-              if (foundryView) injectInGameReturnButton(foundryView);
-            });
+app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+});
 
-              ipcMain.on('clear-cache', async (e) => e.sender.session.clearCache());
+// ─── IPC: Launcher ───────────────────────────────────────────────────────────
 
-              ipcMain.on('save-user-data', (_e, data: SaveUserData) => {
-                saveLoginDetails(data.gameId, data.user, data.password, data.adminPassword);
-              });
+onLauncher('launch-game', (gameId: unknown) => {
+  const game = readAppConfig().games.find(g => String(g.id) === String(gameId));
+  const url = game && normalizeGameUrl(game.url);
+  if (!game || !url) return;
+  currentGameId = game.id;
+  autoLoginPending = true;
+  createFoundryView(url);
+});
 
-              ipcMain.on('save-app-config', (_e, data: Partial<AppConfig>) => {
-                const ud = readUserData();
-                ud.app = { ...(ud.app ?? {}), ...data };
-                writeUserData(ud);
-              });
+onLauncher('clear-cache', () => session.defaultSession.clearCache());
 
-              ipcMain.on('cache-path', (_e, cachePath: string) => {
-                const ud = readUserData();
-                ud.cachePath = cachePath;
-                writeUserData(ud);
-              });
+onLauncher('save-user-data', (data: SaveUserData) => {
+  if (!data || typeof data !== 'object') return;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  saveLoginDetails(data.gameId, str(data.user), str(data.password), str(data.adminPassword));
+});
 
-              ipcMain.on('toggle-discord', (e) => {
-                const win = BrowserWindow.fromWebContents(e.sender);
-                if (win) toggleDiscord(win);
-              });
+onLauncher('save-app-config', (data: Partial<AppConfig>) => {
+  if (!data || typeof data !== 'object') return;
+  const ud = readUserData();
+  ud.app = { ...(ud.app ?? {}), ...data };
+  writeUserData(ud);
+});
 
-                ipcMain.on('set-discord-config', (_e, config: Partial<DiscordPanelConfig>) => {
-                  discordConfig = { ...discordConfig, ...config };
-                  const ud = readUserData();
-                  ud.app = { ...(ud.app ?? {}), discord: discordConfig };
-                  writeUserData(ud);
-                  const win = BrowserWindow.getAllWindows()[0];
-                  if (win) updateLayout(win);
-                  if (foundryView && discordVisible) {
-                    foundryView.webContents.executeJavaScript(
-                      `const s = document.getElementById('fvtt-discord-splitter'); if (s) s.style.bottom = '${discordConfig.size}px';`
-                    ).catch(() => {});
-                  }
-                });
+onLauncher('cache-path', (cachePath: unknown) => {
+  if (typeof cachePath !== 'string' || (cachePath && !path.isAbsolute(cachePath))) return;
+  const ud = readUserData();
+  ud.cachePath = cachePath;
+  writeUserData(ud);
+});
 
-                ipcMain.handle('get-discord-config', () => discordConfig);
-                ipcMain.on('set-pipewire-quantum', (_e, frames: number) => setPipewireQuantum(frames));
-                ipcMain.handle('get-user-data',    (_, gameId: GameId) => getLoginDetails(gameId));
-                ipcMain.handle('app-config',       () => readAppConfig());
-                ipcMain.handle('local-app-config', () => (readUserData().app ?? {}) as Partial<AppConfig>);
-                ipcMain.handle('app-version',      () => app.getVersion());
-                ipcMain.handle('cache-path',       () => app.getPath('sessionData'));
-                ipcMain.handle('get-system-info',  () => getSystemInfo());
-                ipcMain.handle('select-path', (e) => {
-                  if (windowsData[e.sender.id]) windowsData[e.sender.id].autoLogin = true;
-                  return rendererPath();
-                });
+onLauncher('toggle-discord', () => toggleDiscord());
+
+onLauncher('set-discord-config', (config: unknown) => {
+  const patch = sanitizeDiscordConfig(config);
+  const positionChanged = patch.position && patch.position !== discordConfig.position;
+  const urlChanged = patch.url && patch.url !== discordConfig.url;
+  discordConfig = { ...discordConfig, ...patch };
+  saveDiscordConfig();
+  if (positionChanged) loadSplitter();
+  if (urlChanged) discordView?.webContents.loadURL(discordConfig.url);
+  updateLayout();
+});
+
+onLauncher('set-pipewire-quantum', (frames: unknown) => setPipewireQuantum(frames));
+
+handleLauncher('get-discord-config', () => discordConfig);
+handleLauncher('get-user-data',      (gameId: GameId) => getLoginDetails(gameId));
+handleLauncher('app-config',         () => readAppConfig());
+handleLauncher('local-app-config',   () => (readUserData().app ?? {}) as Partial<AppConfig>);
+handleLauncher('app-version',        () => app.getVersion());
+handleLauncher('cache-path',         () => app.getPath('sessionData'));
+handleLauncher('get-system-info',    () => getSystemInfo());
+
+// ─── IPC: Foundry ────────────────────────────────────────────────────────────
+
+ipcMain.on('return-select', (e) => {
+  if (!foundryView || e.sender !== foundryView.webContents) return;
+  returnToLauncher();
+});
+
+// ─── IPC: Splitter ───────────────────────────────────────────────────────────
+
+ipcMain.on('splitter-start', (e) => {
+  if (!fromSplitter(e) || !splitterView) return;
+  splitterDragging = true;
+  win.contentView.addChildView(splitterView); // nach oben holen
+  updateLayout();
+});
+
+ipcMain.on('splitter-move', (e, pos: unknown) => {
+  if (!fromSplitter(e) || !splitterDragging || typeof pos !== 'number' || !Number.isFinite(pos)) return;
+  const { width, height } = win.getContentBounds();
+  const half = SPLITTER_PX / 2;
+  let size: number;
+  switch (discordConfig.position) {
+    case 'right':  size = width - pos - half; break;
+    case 'left':   size = pos - half; break;
+    case 'bottom': size = height - pos - half; break;
+    case 'top':    size = pos - half; break;
+  }
+  discordConfig.size = clampPanelSize(size, isVertical() ? height : width);
+  updateLayout();
+});
+
+ipcMain.on('splitter-end', (e) => {
+  if (!fromSplitter(e)) return;
+  splitterDragging = false;
+  updateLayout();
+  saveDiscordConfig();
+});

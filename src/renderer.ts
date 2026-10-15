@@ -1,6 +1,7 @@
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import './style.css';
 
-const REPO = 'OmegaRogue/fvtt-player-client';
+const REPO = 'Grunarg/fvtt-gateway';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,7 @@ function compareSemver(a: string, b: string): number {
 }
 
 function generateId(): GameId {
-  return Math.round(Math.random() * 1_000_000);
+  return crypto.randomUUID();
 }
 
 // ─── App-Config Helpers ───────────────────────────────────────────────────────
@@ -118,8 +119,7 @@ async function renderGameItem(game: GameConfig): Promise<void> {
 
   li.querySelector('.game-launch')!.addEventListener('click', () => {
     stopLobbyMusic();
-    window.api.openGame(game.id);
-    window.api.launchGame(game.url);  // ← neu statt window.location.href
+    window.api.launchGame(game.id);
   });
 
   li.querySelector('.game-settings-toggle')!.addEventListener('click', () => {
@@ -181,8 +181,15 @@ document.getElementById('add-game')!.addEventListener('click', async () => {
 
 // ─── App-Einstellungen ────────────────────────────────────────────────────────
 
-document.getElementById('open-settings')!.addEventListener('click', () => {
+document.getElementById('open-settings')!.addEventListener('click', async () => {
+  // Größe kann sich per Trennlinie geändert haben – sonst überschreibt "Speichern" sie
+  const discord = await window.api.getDiscordConfig();
+  (document.getElementById('cfg-discord-size') as HTMLInputElement).value = String(discord.size);
   document.getElementById('settings-panel')!.classList.toggle('open');
+});
+
+document.getElementById('close-settings')!.addEventListener('click', () => {
+  document.getElementById('settings-panel')!.classList.remove('open');
 });
 
 document.getElementById('save-settings')!.addEventListener('click', async () => {
@@ -280,15 +287,15 @@ async function migrateFromLocalStorage(): Promise<void> {
   if (!gameList && !appCfg) return;
 
   const current = await getLocalConfig();
-  if (gameList) {
-    current.games = [...(current.games ?? []), ...JSON.parse(gameList)];
-    localStorage.removeItem('gameList');
+  try {
+    if (gameList) current.games = [...(current.games ?? []), ...JSON.parse(gameList)];
+    if (appCfg)   Object.assign(current, JSON.parse(appCfg));
+    window.api.saveAppConfig(current);
+  } catch (e) {
+    console.error('Migration aus localStorage fehlgeschlagen:', e);
   }
-  if (appCfg) {
-    Object.assign(current, JSON.parse(appCfg));
-    localStorage.removeItem('appConfig');
-  }
-  window.api.saveAppConfig(current);
+  localStorage.removeItem('gameList');
+  localStorage.removeItem('appConfig');
 }
 
 // ─── Settings-Panel befüllen ──────────────────────────────────────────────────

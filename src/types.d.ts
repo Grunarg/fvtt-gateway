@@ -63,15 +63,6 @@ type SaveUserData = {
   adminPassword: string;
 };
 
-type WindowData = {
-  gameId: GameId;
-  autoLogin: boolean;
-};
-
-type WindowsData = {
-  [index: number]: WindowData;
-};
-
 // ─── Preload API ──────────────────────────────────────────────────────────────
 
 type ClientApi = {
@@ -81,9 +72,7 @@ type ClientApi = {
   localAppConfig:    () => Promise<Partial<AppConfig>>;
   cachePath:         () => Promise<string>;
   setCachePath:      (p: string) => void;
-  returnToSelect:    () => void;
   saveUserData:      (d: SaveUserData) => void;
-  openGame:          (id: GameId) => void;
   clearCache:        () => void;
   saveAppConfig:     (d: Partial<AppConfig>) => void;
   setPipewireQuantum:(frames: number) => void;
@@ -91,7 +80,17 @@ type ClientApi = {
   toggleDiscord:     () => void;
   setDiscordPanel:   (config: Partial<DiscordPanelConfig>) => void;
   getDiscordConfig:  () => Promise<DiscordPanelConfig>;
-  launchGame: (url: string) => void;
+  launchGame:        (id: GameId) => void;
+};
+
+type FoundryApi = {
+  returnToSelect: () => void;
+};
+
+type SplitterApi = {
+  start: () => void;
+  move:  (pos: number) => void;
+  end:   () => void;
 };
 
 type SystemInfo = {

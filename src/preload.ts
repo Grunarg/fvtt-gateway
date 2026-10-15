@@ -1,3 +1,5 @@
+// Preload für den Launcher (lokale Seite) – volle API.
+// Der Main-Prozess prüft zusätzlich, dass Aufrufe wirklich vom Launcher kommen.
 import { contextBridge, ipcRenderer } from 'electron';
 
 const api: ClientApi = {
@@ -7,8 +9,7 @@ const api: ClientApi = {
   localAppConfig:    ()       => ipcRenderer.invoke('local-app-config'),
   cachePath:         ()       => ipcRenderer.invoke('cache-path'),
   getSystemInfo:     ()       => ipcRenderer.invoke('get-system-info'),
-  returnToSelect:    ()       => ipcRenderer.send('return-select'),
-  openGame:          (id)     => ipcRenderer.send('open-game', id),
+  launchGame:        (id)     => ipcRenderer.send('launch-game', id),
   clearCache:        ()       => ipcRenderer.send('clear-cache'),
   saveUserData:      (d)      => ipcRenderer.send('save-user-data', d),
   saveAppConfig:     (d)      => ipcRenderer.send('save-app-config', d),
@@ -17,7 +18,6 @@ const api: ClientApi = {
   toggleDiscord:     ()       => ipcRenderer.send('toggle-discord'),
   setDiscordPanel:   (c)      => ipcRenderer.send('set-discord-config', c),
   getDiscordConfig:  ()       => ipcRenderer.invoke('get-discord-config'),
-  launchGame: (url: string) => ipcRenderer.send('launch-game', url),
 };
 
 contextBridge.exposeInMainWorld('api', api);
