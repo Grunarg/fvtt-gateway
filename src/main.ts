@@ -17,10 +17,11 @@ if (app.isPackaged) {
 }
 
 app.commandLine.appendSwitch('ozone-platform', 'wayland');
-// Chromium 146: Accelerated* ersetzt die alten Vaapi*-Namen (sonst nur Software-Encoding)
+// Hardware-Decoding ja, Encoding bewusst nicht: VA-API-Encoding ließ den
+// WebRTC-Kamerastream in Discord einbrechen (CPU-Encoding ist stabil)
 app.commandLine.appendSwitch('enable-features', [
   'SharedArrayBuffer','WaylandWindowDecorations',
-  'AcceleratedVideoDecodeLinuxGL','AcceleratedVideoEncoder',
+  'AcceleratedVideoDecodeLinuxGL',
   'WebRTCPipeWireCapturer','CanvasOopRasterization',
 ].join(','));
 app.commandLine.appendSwitch('disable-features','UseChromeOSDirectVideoDecoder');
@@ -409,8 +410,10 @@ function returnToLauncher(): void {
 function createDiscordView(): void {
   session.fromPartition('persist:discord').setPermissionRequestHandler(allowOnly(DISCORD_PERMISSIONS));
 
-  // Mit Drosselung: ausgeblendet pausiert das Rendering, Voice (WebRTC) läuft weiter
-  discordView = new WebContentsView({ webPreferences: { partition: 'persist:discord' } });
+  // Ohne Drosselung: auch ausgeblendet müssen Kamera und Voice ungebremst weiterlaufen
+  discordView = new WebContentsView({
+    webPreferences: { partition: 'persist:discord', backgroundThrottling: false },
+  });
   const wc = discordView.webContents;
   wc.setUserAgent(
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
